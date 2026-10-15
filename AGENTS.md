@@ -33,13 +33,30 @@
 
 ## 上游与扩展修改
 
-1. 以 `upstream/sources.json` 固定 Muse Gadget SDK 基线；先核验归档哈希/commit，再准备 `local/build/` 副本。不要直接开发或覆盖干净 SDK 检出。
-2. 扩展源码的权威位置是 `bridge/extensions/`，SDK 差异的权威位置是 `bridge/patches/muse-gadget-sdk/`。暂存 SDK 中的改动必须回写对应扩展/补丁，不能只留在忽略目录。
-3. Headless 补丁包含新增文件的副本；修改 `bridge/extensions/headless-console/` 时同步 `bridge/patches/muse-gadget-sdk/headless.patch`，验证应用后文件逐字节一致。
-4. 补丁使用上游仓库相对路径；依次应用 headless（可选）、gadget hook/component、avatar。用干净固定基线验证 `git apply --check`，避免重复应用。
-5. Actell 是独立协作应用，其实现和修改直接在 Actell 工程维护。本工程不生成、分发或重新应用 Actell 补丁；其他仓库也不套用 Muse SDK 的补丁流程。联调时核对对端实际源码、分支和未提交状态，不以历史补丁推断已提交或可运行。
-6. 不复制整个 SDK 到可分享目录，不把 SDK 文件伪装成本工程原创。保留来源和许可证；本工程独立代码遵守根目录 LICENSE，外部应用保留各自许可。
-7. SDK 版本、补丁路径或目录布局变化时，同步来源清单、入口脚本、测试、README、AGENTS.md 与 .gitignore。
+- 以 `upstream/sources.json` 固定 Muse Gadget SDK 基线；先核验归档哈希/commit，再准备 `local/build/` 副本。不要直接开发或覆盖干净 SDK 检出。
+- 扩展源码的权威位置是 `bridge/extensions/`，SDK 差异的权威位置是 `bridge/patches/muse-gadget-sdk/`。暂存 SDK 中的改动必须回写对应扩展/补丁，不能只留在忽略目录。
+- Headless 补丁包含新增文件的副本；修改 `bridge/extensions/headless-console/` 时同步 `bridge/patches/muse-gadget-sdk/headless.patch`，验证应用后文件逐字节一致。
+- 补丁使用上游仓库相对路径；依次应用 headless（可选）、gadget hook/component、avatar。用干净固定基线验证 `git apply --check`，避免重复应用。
+- Actell 是独立协作应用，其实现和修改直接在 Actell 工程维护。本工程不生成、分发或重新应用 Actell 补丁；其他仓库也不套用 Muse SDK 的补丁流程。联调时核对对端实际源码、分支和未提交状态，不以历史补丁推断已提交或可运行。
+- 不复制整个 SDK 到可分享目录，不把 SDK 文件伪装成本工程原创。保留来源和许可证；本工程独立代码遵守根目录 LICENSE，外部应用保留各自许可。
+- SDK 版本、补丁路径或目录布局变化时，同步来源清单、入口脚本、测试、README、AGENTS.md 与 .gitignore。
+
+## 两份差异索引的持续维护
+
+后续涉及 Muse Gadget SDK 的开发，必须随实现同步维护以下两份索引；已有内容增量更新，不能只在聊天、提交日志或 `local/` 中记录。
+
+- `docs/muse-sdk-changes.md`：按类别概括本项目对 Muse Gadget SDK 本身的改动，让读者快速了解相对上游有哪些适配。
+- `docs/muse-sdk-extensions.md`：按类别概括本项目为 Muse Gadget SDK 增加的功能，让读者快速了解新增了哪些能力。
+
+维护时遵循以下要求：
+
+- 保持简短，每类用简短说明概括改了什么或增加了什么，可引用组件、补丁、协议和使用文档。
+- 不展开逐文件、逐函数改动，不罗列配置参数、命令步骤、协议字段或测试明细；这些内容留在对应详细文档中。
+- 不写具体日期，不按时间追加开发或验收日志；索引反映当前差异，不充当 changelog。
+- 使用无编号的分类条目，避免顺序编号与全局计数；修改相关类别即可，减少不同分支维护时的冲突。
+- 一项功能同时涉及 SDK 修改与扩展实现时，两份索引同步更新并按需相互引用，避免重复展开。
+- 必要的能力限制用简短说明保留，不把已实现或主机测试写成真机验收通过；详细验证记录放在对应文档或 `local/`。
+- 沿用本文件的数据与分享规则，不写入真实凭据或设备信息。完成相关任务前检查索引及引用是否仍准确，涉及 README 描述时同步中英文版本。
 
 ## 开发与验证
 

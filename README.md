@@ -42,10 +42,14 @@ Before building, prepare a separate copy of the pinned SDK under `local/build/`,
 
 ## Protocols and references
 
+- [Muse Gadget SDK changes](docs/muse-sdk-changes.md): a brief index of SDK adaptations by category, with links to details.
+- [Muse Gadget SDK extensions](docs/muse-sdk-extensions.md): a brief index of added capabilities, with links to details.
 - [Gadget V2](docs/protocol/gadget-v2.md) / [Host V1](docs/protocol/v1.md)
 - [Optional avatar activity](docs/optional-avatar-events.md)
 - [Muse skill](bridge/extensions/skills/gadget-actell-remote/SKILL.md)
 - [Provenance and licensing](THIRD_PARTY.md)
+
+Maintain both indexes alongside implementation changes. Keep entries brief and organized by category, without dates or numbering; implementation, setup, and validation details belong in the linked guides.
 
 The project's independent code follows the root Apache-2.0 LICENSE. Actell remains a separate application under its own GPL-3.0 license. Public synthetic authentication vectors are test data; real tokens, pairing information, and private keys must be stored only in `local/credentials/`.
 

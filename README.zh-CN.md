@@ -42,10 +42,14 @@ python3 bridge/tools/dev.py mock
 
 ## 协议与资料
 
+- [Muse Gadget SDK 改动索引](docs/muse-sdk-changes.md)：按类别简述 SDK 适配，引用详细说明。
+- [Muse Gadget SDK 扩展功能索引](docs/muse-sdk-extensions.md)：按类别简述新增能力，引用详细说明。
 - [Gadget V2](docs/protocol/gadget-v2.md) / [主机 V1](docs/protocol/v1.md)
 - [可选角色动作](docs/optional-avatar-events.md)
 - [Muse skill](bridge/extensions/skills/gadget-actell-remote/SKILL.md)
 - [来源与许可](THIRD_PARTY.md)
+
+两份索引随实现同步维护，按类别简述差异，不写日期、不使用编号；实现、配置和验证细节保留在链接的详细文档中。
 
 本工程独立代码遵守根目录 Apache-2.0 LICENSE；Actell 作为独立应用保留其自身 GPL-3.0 许可。公开合成鉴权向量属于测试数据，真实 token、配对信息和私钥只能存放在 `local/credentials/`。
 
