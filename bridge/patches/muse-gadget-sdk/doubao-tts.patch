@@ -1,0 +1,197 @@
+--- a/esp32/components/muse/CMakeLists.txt
++++ b/esp32/components/muse/CMakeLists.txt
+@@ -113,7 +113,7 @@
+ set(muse_priv_requires
+     esp_timer esp_driver_usb_serial_jtag esp_psram nvs_flash
+     bt esp-tls mbedtls esp_app_format esp_http_client
+-    noise_core minimp3
++    noise_core minimp3 doubao_tts
+     esp_lcd esp_adc esp_driver_i2s esp_driver_ledc esp_driver_spi esp_driver_uart esp_wifi
+     esp_driver_pcnt)
+ list(APPEND muse_priv_requires camera)
+--- a/esp32/components/muse/muse_chat_session.cpp
++++ b/esp32/components/muse/muse_chat_session.cpp
+@@ -72,6 +72,9 @@
+ #include "muse_wifi.h"
+ }
+ #include "muse_chat_priv.h"
++#if CONFIG_DOUBAO_TTS
++#include "doubao_tts.h"
++#endif
+
+ #include <xplat/noise/core/ClientSession.h>
+ #include <xplat/noise/core/PsaCryptoBackend.h>
+@@ -98,7 +101,11 @@
+ #define IN_BYTES (MIC_RATE * 2 * 8)        /* 8 s of mic backlog while connecting */
+ #define OUT_BYTES (MIC_RATE * 2 * 2)       /* 2 s of decoded reply */
+ #define EV_TEXT 72
++#if CONFIG_DOUBAO_TTS
++#define TEXT_MAX 8192
++#else
+ #define TEXT_MAX 1024                      /* a message's text, for captions timed to its speech */
++#endif
+ #define SPEECH_CHARS_PER_S 14              /* until the speech's length is known */
+ #define TEXT_CHARS_PER_S 16                /* speaker off: reading pace, a little over speech */
+ #define TEXT_HOLD_S 2                      /* speaker off: how long a message's last lines stay up */
+@@ -235,6 +242,7 @@
+     int nmsgs;
+     bool agent_busy;
+     /* TTS */
++    size_t tts_offset;       /* next UTF-8 byte in the reply for cloud TTS */
+     int tts_msg;             /* message being fetched (or shown, speaker off), or -1 */
+     bool silent;             /* speaker off: tts_msg is paced by silence, not fetched */
+     uint8_t *mp3;            /* MP3_BUF */
+@@ -953,6 +961,9 @@
+
+ static void turn_finish(void)
+ {
++#if CONFIG_DOUBAO_TTS
++    doubao_tts_cancel();
++#endif
+     turn_reset_streams();
+     s_turn.phase = P_IDLE;
+     s_turn.dict_id = s_turn.chat_id = 0;
+@@ -1501,6 +1512,36 @@
+
+ /* ---- Turn: speech ---- */
+
++#if CONFIG_DOUBAO_TTS
++/* At most 1023 UTF-8 bytes per request, preferably ending at punctuation. */
++static bool start_tts_segment(void)
++{
++    const char *full = s_turn.texts + s_turn.tts_msg * TEXT_MAX;
++    const char *text = full + s_turn.tts_offset;
++    size_t n = strlen(text);
++    if (n > 1023) {
++        n = 1023;
++        while (n && ((unsigned char)text[n] & 0xc0) == 0x80) --n;
++        size_t boundary = 0;
++        for (size_t k = 0; k < n; ++k) {
++            if (text[k] == '.' || text[k] == '!' || text[k] == '?' || text[k] == '\n') boundary = k + 1;
++            if (k + 2 < n && (unsigned char)text[k] == 0xe3 &&
++                (unsigned char)text[k+1] == 0x80 && (unsigned char)text[k+2] == 0x82) boundary = k + 3;
++            if (k + 2 < n && (unsigned char)text[k] == 0xef &&
++                (unsigned char)text[k+1] == 0xbc &&
++                ((unsigned char)text[k+2] == 0x81 || (unsigned char)text[k+2] == 0x9f)) boundary = k + 3;
++        }
++        if (boundary >= n / 2) n = boundary;
++    }
++    char segment[1024];
++    memcpy(segment, text, n);
++    segment[n] = '\0';
++    if (!n || !doubao_tts_start(segment)) return false;
++    s_turn.tts_offset += n;
++    return true;
++}
++#endif
++
+ static void start_tts(void)
+ {
+     if (s_turn.tts_msg >= 0) {
+@@ -1511,21 +1552,25 @@
+         if (m.tts != TTS_QUEUED) {
+             continue;
+         }
+-        /*
+-         * Replies are text, shown at reading pace: silence in place of speech
+-         * paces the captions and ends the turn. To speak them instead, send
+-         * the message's text (s_turn.texts + i * TEXT_MAX, if texts was
+-         * allocated; up to TEXT_MAX - 1 bytes) to a TTS API of your choice and
+-         * play the MP3 it returns. In place of the silence below: keep
+-         * m.tts = TTS_ACTIVE and s_turn.tts_msg = i, set s_turn.silent = false,
+-         * m.pcm_start = s_turn.pcm_out, m.pcm_frames = 0, s_turn.mp3_len = 0,
+-         * s_turn.mp3_ended = false, s_turn.kbps = 0, s_turn.down_rate = 0 and
+-         * mp3dec_init(&s_turn.dec). Then, on this task, pass the MP3 to
+-         * tts_data() as it arrives (it buffers up to MP3_BUF and drops the
+-         * rest, so hold off while it's full) and set s_turn.mp3_ended at the
+-         * end. decode() plays it at the speaker's volume, captions following,
+-         * and finishes the message once it's drained.
+-         */
++#if CONFIG_DOUBAO_TTS
++        if (muse_settings_speaker_on()) {
++            if (!s_turn.texts || m.len >= TEXT_MAX) {
++                turn_fail("REPLY TOO LONG FOR TTS");
++                return;
++            }
++            m.pcm_start = s_turn.pcm_out;
++            m.pcm_frames = 0;
++            m.tts = TTS_ACTIVE;
++            s_turn.tts_msg = i;
++            s_turn.silent = false;
++            s_turn.tts_offset = 0;
++            mark(M_TTS);
++            show_reply_start(m);
++            if (!start_tts_segment()) turn_fail("TTS UNAVAILABLE");
++            return;
++        }
++#endif
++        /* Provider disabled or speaker off: retain upstream caption pacing. */
+         m.pcm_start = s_turn.pcm_out;
+         m.pcm_frames = (uint32_t)(m.len * MIC_RATE / TEXT_CHARS_PER_S);
+         m.tts = TTS_ACTIVE;
+@@ -1581,6 +1626,45 @@
+     }
+ }
+
++#if CONFIG_DOUBAO_TTS
++static void pump_tts_pcm(void)
++{
++    if (s_turn.gen != s_gen.load()) {
++        doubao_tts_cancel();
++        return;
++    }
++    if (doubao_tts_state() == DOUBAO_TTS_ERROR) {
++        turn_fail("TTS UNAVAILABLE");
++        return;
++    }
++    while (xStreamBufferSpacesAvailable(s_out) >= 1024) {
++        size_t n = doubao_tts_read(s_pcm16, 512);
++        if (!n) {
++            /* Recheck after the empty read: DONE publishes the last PCM first. */
++            if (doubao_tts_state() != DOUBAO_TTS_DONE) return;
++            n = doubao_tts_read(s_pcm16, 512);
++            if (!n) {
++                msg_t &m = s_turn.msgs[s_turn.tts_msg];
++                const char *full = s_turn.texts + s_turn.tts_msg * TEXT_MAX;
++                if (full[s_turn.tts_offset]) {
++                    if (!start_tts_segment()) turn_fail("TTS UNAVAILABLE");
++                    return;
++                }
++                m.pcm_frames = s_turn.pcm_out - m.pcm_start;
++                m.tts = TTS_FINISHED;
++                s_turn.tts_msg = -1;
++                doubao_tts_cancel();
++                return;
++            }
++        }
++        if (s_turn.gen != s_gen.load()) return;
++        mark(M_AUDIO);
++        size_t sent = xStreamBufferSend(s_out, s_pcm16, n * sizeof(int16_t), 0);
++        s_turn.pcm_out += sent / sizeof(int16_t);
++    }
++}
++#endif
++
+ /* Decodes buffered MP3 while the reply buffer has room. */
+ static void decode(void)
+ {
+@@ -1591,6 +1675,10 @@
+         pace_silently();
+         return;
+     }
++#if CONFIG_DOUBAO_TTS
++    pump_tts_pcm();
++    return;
++#endif
+     /*
+      * minimp3 only takes a frame once it can see the next one's header. Given
+      * less, it resets and says to skip all of it, which drops speech and clicks.
+@@ -2209,7 +2297,7 @@
+         return 0;
+     }
+     mp3dec_init(dec);
+-    resampler_t rs;
++    resampler_t rs{};
+     int rate = 0, frames = 0;
+     size_t off = 0, n = 0;
+     int64_t t0 = now_us();

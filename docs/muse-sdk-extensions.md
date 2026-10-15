@@ -7,6 +7,7 @@
 - **实验图片回传**：提供受限缩略图回传，默认关闭；真实 Muse 模型图像输入仍需验证。见 [设备 V2 协议](protocol/gadget-v2.md)。
 - **Pebble 角色与动作**：提供原创角色和基础状态动画，可选显示手机读写活动；动作反馈独立于工具执行。见 [角色说明](../bridge/extensions/avatar/README.md) 与 [可选活动反馈](optional-avatar-events.md)。
 - **无屏文字交互**：提供 Muse 文字提交、取消、状态及回复事件浏览；可选网页仅用于隔离可信开发网络。见 [无屏控制台](headless-console.md)。
+- **豆包回复播报**：增加 HTTPS 流式 TTS、PCM 缓冲背压、长回复分段及取消隔离，固定合成资源与音色，按 API key 是否配置自动启停；秘密配置通过工具导入和审计，云端调用和真机播放需单独验收。见 [TTS 说明](doubao-tts.md)。
 - **主机开发与使用说明**：提供 Python 客户端、loopback mock、网页原型和回归工具，以及 Muse 调用扩展的 skill。见 [主机客户端](host-client.md)、[开发入口](../bridge/README.md) 与 [Muse skill](../bridge/extensions/skills/gadget-actell-remote/SKILL.md)。
 
 主机 mock 不操作真实手机；源码和主机测试不代表真机端到端验收。各项能力的前提与限制以对应详细说明为准。

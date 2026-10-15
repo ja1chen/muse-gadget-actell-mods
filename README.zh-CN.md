@@ -33,12 +33,14 @@ python3 bridge/tools/dev.py mock
 ## 上游与本工程的边界
 
 - **上游**：官方账户/配对、Noise 控制通道、板卡驱动和基础 Muse UI；固定版本见 [来源清单](upstream/sources.json)。完整源码与开发/测试密钥仅保存在 `local/upstream/`。
-- **本工程扩展**：[gadget-actell](bridge/extensions/gadget-actell/README.md)、[avatar](bridge/extensions/avatar/README.md)、[headless console](docs/headless-console.md)。源码在 `bridge/extensions/` 维护，暂存 SDK 仅用于构建验证。
+- **本工程扩展**：[gadget-actell](bridge/extensions/gadget-actell/README.md)、[avatar](bridge/extensions/avatar/README.md)、[headless console](docs/headless-console.md) 及可选[豆包回复语音](docs/doubao-tts.md)。源码在 `bridge/extensions/` 维护，暂存 SDK 用于构建验证。TTS 通过校验 HTTPS 流式接收并复用现有 PCM 播放；云端及真机播放需单独验收。
 - **SDK 修改**：[patches](bridge/patches/README.md) 仅保存 Muse Gadget SDK 的接点和适配补丁。Headless 新文件在扩展目录与补丁中保持同步。
 - **Actell 应用**：独立工程维护连接、授权与手机执行实现；在 Actell 工程直接开发和验证。本工程不提供 Actell 安装补丁，历史 V1 补丁不再用于当前联调。
 - **主机原型**：`bridge/host/` 用于协议和 UI 回归；当前设备组件直接使用 Wi-Fi HTTPS，无需实现历史原型提出的 Muse VM Home Link transport。
 
 开始构建前，在 `local/build/` 准备固定 SDK 的独立副本，按补丁说明应用并暂存扩展。不要混入 Actell 原有 USB-C/NCM 转发固件。目标编译、真实 Muse 账户、USB 配置、手机执行和模型图像输入均需分别验证，主机测试不能替代真机验收。
+
+秘密配置由用户指定路径，推荐放在工程目录外。`--secrets` 为必填参数，不设置默认工程内路径。用 `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --init` 创建 0600 占位文件，再由用户本机编辑；仅允许工具读取，代理不得直接查看、展示或将源文件复制进工程。通过 `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --sdkconfig local/build/sdk-copy/esp32/build-tts/sdkconfig` 导入，工具不回显值。文件仅填写 `CONFIG_GADGET_SDK_TOKEN` 和可选的 `CONFIG_DOUBAO_TTS_API_KEY`；API key 非空时自动启用 TTS，资源与音色在组件中固定。字段与构建步骤见 [TTS 配置说明](docs/doubao-tts.md)。
 
 ## 协议与资料
 
@@ -51,7 +53,7 @@ python3 bridge/tools/dev.py mock
 
 两份索引随实现同步维护，按类别简述差异，不写日期、不使用编号；实现、配置和验证细节保留在链接的详细文档中。
 
-本工程独立代码遵守根目录 Apache-2.0 LICENSE；Actell 作为独立应用保留其自身 GPL-3.0 许可。公开合成鉴权向量属于测试数据，真实 token、配对信息和私钥只能存放在 `local/credentials/`。
+本工程独立代码遵守根目录 Apache-2.0 LICENSE；Actell 作为独立应用保留其自身 GPL-3.0 许可。公开合成鉴权向量属于测试数据；工程内的真实 token、配对信息和私钥存放在 `local/credentials/`，用户指定的秘密配置源文件可保留在工程外。
 
 ## Git 分享前
 
@@ -61,3 +63,5 @@ git status --short
 ```
 
 检查器扫描已跟踪及未忽略文件，只报告路径和问题类型，不打印凭据；它不替代人工审查。对外归档从已审查的 Git 提交生成，输出到 `local/`，不要压缩整个工作目录。
+
+需要比对实际凭据时，运行 `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --audit-share`。工具检查 Git 可见文件及暂存内容，仅报告脱敏后的匹配位置，不回显值或匹配行。
