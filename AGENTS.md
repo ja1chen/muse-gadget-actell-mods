@@ -4,12 +4,12 @@
 
 - `bridge/`：本项目工程链路的总目录。新增客户端、扩展、补丁、测试和开发工具优先归入其对应子目录，不在仓库根目录新增平级实现目录。
 - `bridge/host/`：本工程 Python 客户端、loopback mock、网页及其测试。运行入口为 `python3 bridge/tools/dev.py`。
-- `bridge/extensions/`：本工程维护的 gadget-actell、avatar、headless-console 和 muse-fonts 扩展源码与通用配置；avatar 的 `preview/` 仅本机保留，整体忽略，不提交或上传。
+- `bridge/extensions/`：本工程维护的 gadget-actell、avatar、headless-console、muse-fonts 和 doubao-tts 扩展源码与通用配置；avatar 的 `preview/` 仅本机保留，整体忽略，不提交或上传。
 - `bridge/patches/muse-gadget-sdk/`：仅保存对固定 Muse Gadget SDK 的差异。本工程的“通过补丁修改上游”只适用于 Muse Gadget SDK。
 - `upstream/`：只保存 Muse Gadget SDK 的来源 URL、固定 commit、归档 SHA-256 与接入说明。SDK 完整源码、Git 历史、开发签名密钥和下载包均放在 `local/upstream/`。
 - `docs/`：可公开的架构、协议和使用说明；`bridge/extensions/skills/`：本工程交付的 Muse 使用说明，作为扩展一起维护。
 - `bridge/tools/`：可复用开发、检查和验证程序。测试代码应纳入 Git；测试产生的报告、日志和二进制不得混入源码。
-- `local/`：工程内唯一的本机数据目录，整体被 Git 忽略。用户指定的秘密配置源文件可以放在工程外，不得复制进工程。不得使用 `git add -f` 绕过。
+- `local/`：工程内唯一的本机数据目录，整体被 Git 忽略。用户指定的秘密配置源文件可以放在工程外；不得复制进工程。不得使用 `git add -f` 绕过。
 - 根目录保留 `README.md`、`README.zh-CN.md`、`AGENTS.md`、`LICENSE`、`THIRD_PARTY.md` 和 Git 配置文件；第三方来源与许可归属集中记录在 `THIRD_PARTY.md`。
 - `README.md` 为英文说明，`README.zh-CN.md` 为简体中文说明；两者顶部相互链接。修改目录、开发命令、能力边界或分享规则时同步两种语言。
 
@@ -33,16 +33,19 @@
 
 ### 秘密配置的工具边界
 
-- 秘密配置使用 `sdkconfig` 风格 KV，由用户指定路径；代理不得直接读取、搜索、展示或复制秘密文件。只通过经审查的导入工具写入指定 `local/build/` 内的配置，工具只报告状态，不回显值。
-- 含真实凭据的生成配置、头文件、固件和可能回显凭据的日志同样不得直接查看或搜索。必要的构建/刷机工具可在授权范围内使用这些文件，输出保持本机私密；排错使用独立合成配置，不回显真实日志。
-- 主机测试使用合成输入；不得用用户真实秘密验证导入工具。字体独立构建只导入 SDK token，不引入其他功能的凭据或实现。
+- 秘密配置使用 `sdkconfig` 风格 KV，由用户放在其指定路径，推荐放在工程目录外；通过 `--secrets` 显式传入，无默认工程内路径。格式见 [TTS 配置说明](docs/doubao-tts.md)。代理不得直接读取、搜索、展示、输出或复制该文件。
+- 只有 `bridge/tools/apply-secrets.py` 可以读取秘密配置，写入指定的 `local/build/` 内 `sdkconfig` 或执行 `--audit-share` 凭据泄漏比对；通过 `--secrets` 传文件路径，不在命令行传凭据。工具只报告状态、字段名称或脱敏后的匹配位置，不回显值。
+- 秘密文件只接受 `CONFIG_GADGET_SDK_TOKEN` 和可选的 `CONFIG_DOUBAO_TTS_API_KEY`；TTS 根据 API key 是否非空自动启停，合成资源与音色固定在组件实现中。
+- 代理同样不得直接读取、搜索或输出含真实凭据的生成配置、`sdkconfig.old`、生成头文件、固件或可能回显凭据的日志。必要的构建/刷机工具可在用户授权范围内使用这些文件，不向代理回显内容。真实配置构建的输出保持本机私密；排错使用脱敏工具或独立合成配置。
+- 字体独立构建保留 `--sdk-token-only`，仅导入 SDK token 并移除已有 provider 开关和凭据；合并后的 TTS 构建使用普通导入模式，不能用 SDK-only 模式验证播报。
+- 可直接读取源码、占位模板和明确标注的合成测试配置。不要用真实 secrets 验证工具；测试使用临时生成的合成数据。
 
 ## 上游与扩展修改
 
 - 以 `upstream/sources.json` 固定 Muse Gadget SDK 基线；先核验归档哈希/commit，再准备 `local/build/` 副本。不要直接开发或覆盖干净 SDK 检出。
 - 扩展源码的权威位置是 `bridge/extensions/`，SDK 差异的权威位置是 `bridge/patches/muse-gadget-sdk/`。暂存 SDK 中的改动必须回写对应扩展/补丁，不能只留在忽略目录。
 - Headless 补丁包含新增文件的副本；修改 `bridge/extensions/headless-console/` 时同步 `bridge/patches/muse-gadget-sdk/headless.patch`，验证应用后文件逐字节一致。
-- 补丁使用上游仓库相对路径；依次应用 headless（可选）、gadget hook/component、avatar（可选）、caption font hook/component（可选）。用干净固定基线验证 `git apply --check`，避免重复应用。
+- 补丁使用上游仓库相对路径；依次应用 headless（可选）、gadget hook/component、avatar（可选）、caption font hook/component（可选）、doubao TTS hook/component（可选）。用干净固定基线验证 `git apply --check`，避免重复应用。
 - Actell 是独立协作应用，其实现和修改直接在 Actell 工程维护。本工程不生成、分发或重新应用 Actell 补丁；其他仓库也不套用 Muse SDK 的补丁流程。联调时核对对端实际源码、分支和未提交状态，不以历史补丁推断已提交或可运行。
 - 不复制整个 SDK 到可分享目录，不把 SDK 文件伪装成本工程原创。保留来源和许可证；本工程独立代码遵守根目录 LICENSE，外部应用保留各自许可。
 - SDK 版本、补丁路径或目录布局变化时，同步来源清单、入口脚本、测试、README、AGENTS.md 与 .gitignore。

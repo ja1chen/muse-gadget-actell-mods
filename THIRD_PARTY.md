@@ -13,3 +13,8 @@ The independent gadget component additionally resolves Espressif mDNS 1.10.0
 component manager. Their source is not vendored here. Resolved build dependency
 locks are retained locally under `local/validation/gadget-actell/`; the SDK and managed
 components retain their upstream licenses. No production credential is included.
+
+The optional Doubao TTS extension calls Volcengine's documented HTTP API and
+uses ESP-IDF HTTP/TLS plus the same resolved Espressif cJSON component. It does
+not vendor a Doubao SDK or copy its sample client. Host worker tests compile
+the locally resolved cJSON source with its original license unchanged.

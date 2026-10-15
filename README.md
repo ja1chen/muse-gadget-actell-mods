@@ -33,12 +33,14 @@ For other Python usage, run modules from `bridge/host/` or set `PYTHONPATH=bridg
 ## Upstream and project boundaries
 
 - **Upstream**: official account/pairing flows, the Noise control channel, board drivers, and base Muse UI. The pinned version is recorded in the [source manifest](upstream/sources.json). Full source and development/test keys are kept only under `local/upstream/`.
-- **Project extensions**: [gadget-actell](bridge/extensions/gadget-actell/README.md), [avatar](bridge/extensions/avatar/README.md), and the [headless console](docs/headless-console.md). Their source is maintained in `bridge/extensions/`; staged SDK copies are used for build validation.
+- **Project extensions**: [gadget-actell](bridge/extensions/gadget-actell/README.md), [avatar](bridge/extensions/avatar/README.md), the [headless console](docs/headless-console.md), and optional [Doubao reply TTS](docs/doubao-tts.md). Their source is maintained in `bridge/extensions/`; staged SDK copies are used for build validation. TTS uses verified HTTPS streaming and existing PCM playback; cloud and physical playback require separate acceptance.
 - **SDK changes**: [patches](bridge/patches/README.md) contains only Muse Gadget SDK integration and adaptation patches. New headless files are kept synchronized between the extension directory and the patch.
 - **Actell application**: connection management, authorization, and phone execution are developed and verified directly in the separate Actell project. This repository does not provide an Actell installation patch; the historical V1 patch is no longer part of the current integration workflow.
 - **Host prototype**: `bridge/host/` supports protocol and UI regression checks. The current device component uses HTTPS directly over Wi-Fi and does not require the Muse VM Home Link transport proposed by the historical prototype.
 
 Before building, prepare a separate copy of the pinned SDK under `local/build/`, follow the patch instructions, and stage the extensions. Keep this separate from Actell's existing USB-C/NCM forwarding firmware. Target compilation, real Muse account access, USB setup, phone execution, and model image input each require separate verification; host tests do not establish physical-device acceptance.
+
+Keep the private configuration at a user-selected path, preferably outside this project. `--secrets` is required; there is no default project-local path. Create a placeholder with `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --init`, then edit it locally. Only this tool may read the user's secrets; agents must not inspect, display or copy the source file into the project. Import with `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --sdkconfig local/build/sdk-copy/esp32/build-tts/sdkconfig`. Only `CONFIG_GADGET_SDK_TOKEN` and optional `CONFIG_DOUBAO_TTS_API_KEY` belong in this file. A nonempty API key enables TTS automatically; resource and voice are fixed in the component. Values are hidden; see the [configuration guide](docs/doubao-tts.md). The optional `--sdk-token-only` mode is for isolated font builds and removes provider settings; omit it when preparing TTS or combined font/TTS firmware.
 
 ## Protocols and references
 
@@ -51,9 +53,9 @@ Before building, prepare a separate copy of the pinned SDK under `local/build/`,
 
 Maintain both indexes alongside implementation changes. Keep entries brief and organized by category, without dates or numbering; implementation, setup, and validation details belong in the linked guides.
 
-The project's independent code follows the root Apache-2.0 LICENSE. Actell remains a separate application under its own GPL-3.0 license. Public synthetic authentication vectors are test data; real tokens, pairing information, and private keys must be stored only in `local/credentials/`.
+The project's independent code follows the root Apache-2.0 LICENSE. Actell remains a separate application under its own GPL-3.0 license. Public synthetic authentication vectors are test data; project-local tokens, pairing information, and private keys belong in `local/credentials/`. User-selected secrets source files may remain outside the project.
 
-Experimental [caption fonts and shared resources](docs/caption-font-integration.md) provide a default-off reader, bounded per-glyph decoding, pixel pagination, original-font fallback and public-config firmware builds. [Resource packages](docs/read-only-resources.md) contain Actell Device Sans candidates derived from pinned Adobe fonts; font assets retain OFL-1.1 separately from the code license. Generated data stays under `local/`. The proposed resource layout preserves original data partitions and dual OTA slots. Initial resource deployment and firmware startup checks have passed. Final font selection, visual/performance acceptance and rollback validation remain pending.
+Experimental [caption fonts and shared resources](docs/caption-font-integration.md) provide a default-off reader, bounded per-glyph decoding, pixel pagination, original-font fallback and public-config firmware builds. [Resource packages](docs/read-only-resources.md) contain Actell Device Sans candidates derived from pinned Adobe fonts; font assets retain OFL-1.1 separately from the code license. Generated data stays under `local/`. The font build runner also supports protected combined firmware with `--mode on --with-tts --secrets`; both extensions must be staged first. The proposed resource layout preserves original data partitions and dual OTA slots. Initial resource deployment and firmware startup checks have passed. Final font selection, visual/performance acceptance and rollback validation remain pending.
 
 ## Before sharing through Git
 
@@ -63,3 +65,5 @@ git status --short
 ```
 
 The checker scans tracked and non-ignored files, reporting paths and issue types without printing credentials. It does not replace manual review. Generate distributable archives from reviewed Git commits and write them to `local/`; do not archive the entire working directory.
+
+For a comparison with the actual credentials, run `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --audit-share`. This tool checks Git-visible working files and staged contents, reporting sanitized locations only; it does not reveal values or matching lines.

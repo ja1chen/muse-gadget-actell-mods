@@ -1,0 +1,14 @@
+menu "Doubao reply speech"
+config DOUBAO_TTS
+    bool
+    depends on MUSE_HATCH && MUSE_ENABLED
+    default y if DOUBAO_TTS_API_KEY != ""
+    default n
+    help
+        Sends completed voice-turn reply text to Doubao over verified HTTPS.
+        Console text turns remain text only. PCM16 mono at 16 kHz.
+config DOUBAO_TTS_API_KEY
+    string "Doubao API key (private build input)"
+    depends on MUSE_HATCH && MUSE_ENABLED
+    default ""
+endmenu

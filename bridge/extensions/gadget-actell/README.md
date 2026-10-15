@@ -164,11 +164,12 @@ without it Chinese text appears as boxes. Existing build configurations must
 also enable the option explicitly, because new defaults do not override cached
 values.
 
-The pinned upstream SDK displays text replies at reading pace using silent PCM.
-Its `SPEAKING` state does not prove that reply speech is being synthesized. A TTS
-provider must be integrated at `muse_chat_session.cpp::start_tts()` for spoken
-replies. The built-in USB `m` MP3 self-test can check decoding and speaker output
-independently of that missing integration.
+Without the optional [Doubao TTS extension](../../../docs/doubao-tts.md), the
+pinned upstream SDK displays text replies at reading pace using silent PCM.
+Its `SPEAKING` state alone does not prove synthesized speech. The extension
+connects completed voice-turn replies to verified HTTPS streaming and the
+existing PCM playback path; real cloud/device playback requires separate
+validation. The USB `m` MP3 self-test checks decoding and speaker output only.
 
 The safe default firmware has setup OFF and **cannot accept its first invitation**.
 Opt in deliberately when building the provisioning-capable development profile.
