@@ -1,0 +1,2 @@
+# Unified diffs use a space prefix for empty context lines.
+bridge/patches/muse-gadget-sdk/*.patch whitespace=-blank-at-eol

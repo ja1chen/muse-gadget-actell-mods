@@ -29,6 +29,8 @@ def main():
             parser.error('test requires Node.js and a C compiler (cc)')
         commands = [
             [py, '-m', 'unittest', 'discover', '-s', 'bridge/host/tests', '-v'],
+            [py, '-m', 'unittest', 'discover', '-s', 'bridge/extensions/muse-fonts/tools', '-p', 'test_*.py', '-v'],
+            ['node', '--check', 'bridge/extensions/muse-fonts/tools/generate.js'],
             ['node', '--check', 'bridge/host/web_console/app.js'],
             ['node', '--check', 'bridge/host/web_console/presentation.js'],
             ['node', 'bridge/tools/validation/console-dom-review.js'],

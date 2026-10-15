@@ -1,0 +1,11 @@
+menu "Actell shared resources"
+    config ACTELL_CAPTION_FONT
+        bool "Read caption font from shared read-only resources"
+        depends on MUSE_ENABLED && MUSE_BOARD_WAVESHARE_S3_216
+        default n
+        help
+            Experimental 480x480 profile. Validate the ACTRES01 resource package
+            and decode one glyph at a time from immutable Flash. Missing or
+            incompatible resources use the original font and pagination.
+            Does not write Flash, update partitions, or change account data.
+endmenu

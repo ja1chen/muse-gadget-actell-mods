@@ -53,6 +53,8 @@ Maintain both indexes alongside implementation changes. Keep entries brief and o
 
 The project's independent code follows the root Apache-2.0 LICENSE. Actell remains a separate application under its own GPL-3.0 license. Public synthetic authentication vectors are test data; real tokens, pairing information, and private keys must be stored only in `local/credentials/`.
 
+Experimental [caption fonts and shared resources](docs/caption-font-integration.md) provide a default-off reader, bounded per-glyph decoding, pixel pagination, original-font fallback and public-config firmware builds. [Resource packages](docs/read-only-resources.md) contain Actell Device Sans candidates derived from pinned Adobe fonts; font assets retain OFL-1.1 separately from the code license. Generated data stays under `local/`. The proposed resource layout preserves original data partitions and dual OTA slots. Initial resource deployment and firmware startup checks have passed. Final font selection, visual/performance acceptance and rollback validation remain pending.
+
 ## Before sharing through Git
 
 ```sh

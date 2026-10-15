@@ -52,6 +52,8 @@ xcuserdata/
 *.mobileprovision
 *.keychain*
 *credentials*.json
+*secrets*.json
+*secrets*.conf
 *connection-info*.json
 private-connection.json
 *invitation*.json
