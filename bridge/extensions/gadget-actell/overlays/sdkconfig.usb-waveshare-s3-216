@@ -1,0 +1,7 @@
+# Explicit opt-in development bootstrap ONLY for Waveshare S3 Touch AMOLED 2.16.
+# Pinned official board_waveshare_s3_216.c documents KEY3 GPIO18 active-low.
+# Release KEY3 during reset, then hold 2 seconds within the 8-second app arming window.
+# Never hold BOOT GPIO0 across reset: that selects ROM download mode.
+CONFIG_ACTELL_BRIDGE=y
+CONFIG_ACTELL_BRIDGE_USB_SETUP=y
+CONFIG_ACTELL_SETUP_BUTTON_GPIO=18

@@ -1,0 +1,3 @@
+# Include the upstream Unifont fallback for Chinese/Japanese reply captions.
+# Requires a display profile with CONFIG_MUSE_ENABLED=y.
+CONFIG_MUSE_CJK_FONT=y

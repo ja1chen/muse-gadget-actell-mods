@@ -1,0 +1,5 @@
+CONFIG_ACTELL_BRIDGE=y
+CONFIG_HOMEHUB_TUNNEL=n
+# Experimental image return stays off until model visibility is validated.
+CONFIG_ACTELL_BRIDGE_IMAGES=n
+CONFIG_ACTELL_BRIDGE_USB_SETUP=n

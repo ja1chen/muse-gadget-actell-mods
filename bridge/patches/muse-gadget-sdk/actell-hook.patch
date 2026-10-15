@@ -1,0 +1,92 @@
+--- a/esp32/main/noise_control.cpp
++++ b/esp32/main/noise_control.cpp
+@@ -15,6 +15,9 @@
+  */
+ 
+ #include "noise_control.h"
++#if CONFIG_ACTELL_BRIDGE
++#include "actell_bridge.h"
++#endif
+ #include "stack_monitor.h"
+ #include "noise_upgrade.h"
+ #include "noise_tunnel_internal.h"
+@@ -1431,6 +1434,9 @@
+                     ota_required, ota_optional);
+     }
+ 
++#if CONFIG_ACTELL_BRIDGE
++    actell_bridge_register(commands);
++#endif
+     cJSON_AddItemToObject(params, "commands_v2", commands);
+     cJSON_AddItemToObject(root, "params", params);
+ 
+@@ -1953,6 +1959,9 @@
+     session_generation = noise_ctrl_next_session_generation(
+         s_session_generation_counter);
+     s_session_generation_counter = session_generation;
++#if CONFIG_ACTELL_BRIDGE
++    actell_bridge_session(session_generation);
++#endif
+ 
+     // 4. Open POST /link-control stream
+     {
+@@ -2295,6 +2304,9 @@
+     }  // end event loop scope
+ 
+ cleanup:
++#if CONFIG_ACTELL_BRIDGE
++    actell_bridge_session(0);
++#endif
+     clear_pending_json_body(control_tx);
+     free(ws_buf);
+     free(identity.body);
+--- a/esp32/main/app.c
++++ b/esp32/main/app.c
+@@ -52,6 +52,9 @@
+ #include "vm_api.h"
+ #include "vm_connect.h"
+ #include "noise_control.h"
++#if CONFIG_ACTELL_BRIDGE
++#include "actell_bridge.h"
++#endif
+ #include "image_fetch.h"
+ #include "noise_tunnel.h"
+ #include "led_status.h"
+@@ -1843,6 +1846,10 @@
+ static cJSON *on_ws_command(
+     const char *command, cJSON *params, const char *request_id,
+     noise_ctrl_session_generation_t session_generation) {
++#if CONFIG_ACTELL_BRIDGE
++    if (strcmp(command, "actell.rpc") == 0 || strcmp(command, "actell.image") == 0)
++        return actell_bridge_invoke(command, params, request_id, session_generation);
++#endif
+     if (strcmp(command, "device.list_vms") == 0) {
+         return list_vms_command();
+     }
+--- a/esp32/main/main.c
++++ b/esp32/main/main.c
+@@ -21,7 +21,14 @@
+ #include "muse_glue.h"
+ #endif
+ 
++#if CONFIG_ACTELL_BRIDGE_USB_SETUP
++#include "actell_bridge.h"
++#endif
++
+ void app_main(void) {
++#if CONFIG_ACTELL_BRIDGE_USB_SETUP
++    actell_bridge_usb_setup();
++#endif
+ #if CONFIG_HOMEHUB_SUPPORT_BUG_REPORT
+     if (!diagnostic_log_init()) {
+         ESP_LOGW("link.main",
+--- a/esp32/main/CMakeLists.txt
++++ b/esp32/main/CMakeLists.txt
+@@ -40,6 +40,7 @@
+ )
+ 
+ set(GADGET_REQUIRES
++    actell_bridge
+     nvs_flash
+     esp_wifi
+     esp_event

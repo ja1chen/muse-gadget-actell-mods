@@ -1,0 +1,16 @@
+{
+  "muse_sdk": {
+    "url": "https://github.com/facebookincubator/muse-gadget-sdk.git",
+    "commit": "812c46f9fe42b69d916613a9dc702cbac5ff7b54",
+    "license": "Apache-2.0",
+    "bundled": false,
+    "archive_path": "local/upstream/archives/muse-gadget-sdk-812c46f.tar.gz",
+    "archive_sha256": "0a7548404b4aa25ad0cc3ad0f9fee1ad3a3245a03a14b02293da3a83bde69359",
+    "patch_directory": "bridge/patches/muse-gadget-sdk",
+    "bundled_meaning": "Full upstream source is excluded from this Git repository; a local ignored archive may be present."
+  },
+  "target_board": "Waveshare ESP32-S3-Touch-AMOLED-2.16",
+  "real_hardware_verified": false,
+  "muse_homelink_transport_verified": false,
+  "muse_model_image_input_verified": false
+}

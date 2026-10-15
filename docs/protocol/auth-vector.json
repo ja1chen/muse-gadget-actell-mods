@@ -1,0 +1,8 @@
+{
+  "description": "Public non-production HMAC test vector; fixed timestamp is intentionally expired",
+  "key_utf8": "test-only-never-use-in-production-0000",
+  "body_utf8": "{\"v\":1,\"client_id\":\"test-client\",\"request_id\":\"00000000-0000-4000-8000-000000000001\",\"op\":\"capabilities\",\"params\":{}}",
+  "timestamp": "1791789900",
+  "nonce": "00000000-0000-4000-8000-000000000002",
+  "signature_hex": "918badaa9bb84dfe44661830d7c746a12c2ce57ee256b3f65af00d91dae06f38"
+}

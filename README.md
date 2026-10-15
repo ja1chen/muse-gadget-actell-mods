@@ -1,0 +1,59 @@
+# Muse × Actell Bridge
+
+English | [简体中文](README.zh-CN.md)
+
+An independent Actell extension project for Muse Gadget SDK, targeting Waveshare ESP32-S3-Touch-AMOLED-2.16 with an optional headless configuration. Muse handles planning; the device component calls Actell over HTTPS/HMAC, using Actell's authorization, approval, and execution queue.
+
+## Repository layout
+
+| Directory | Contents |
+|---|---|
+| `bridge/` | Project implementation: host, extensions (including skills), patches, and tools |
+| `upstream/` | Muse Gadget SDK URL, pinned commit, and archive hash; full SDK source is excluded |
+| `docs/` | Protocols, architecture, and usage guides |
+| `local/` | Local material, entirely Git-ignored and excluded from sharing |
+
+See [bridge/README.md](bridge/README.md) for the internal layout and [AGENTS.md](AGENTS.md) for engineering conventions. `LICENSE` and [THIRD_PARTY.md](THIRD_PARTY.md) live at the repository root and document licensing and third-party provenance. Local logs, validation reports, caches, builds, upstream archives, credentials, and real screenshots belong in their respective `local/` subdirectories. Historical material is retained there; paths in old reports describe the environment at the time. Avatar's `bridge/extensions/avatar/preview/` is also entirely ignored and kept locally; do not commit or upload it.
+
+## Local development
+
+Requires Python 3.10+. The full host test suite also requires Node.js and a C compiler. The Python client uses only the standard library.
+
+```sh
+python3 bridge/tools/dev.py test
+python3 bridge/tools/dev.py console --port 8766
+# Or start only the protocol mock:
+python3 bridge/tools/dev.py mock
+```
+
+Open the web console at `http://127.0.0.1:8766`. These entry points use synthetic screenshots and mock tools; they do not control a phone. The natural-language interface explicitly reports that it is not connected to a real Muse session. Tests create and close temporary loopback services. Logs go to `local/logs/current/`; Python caches and temporary builds go to `local/cache/` and `local/build/` respectively.
+
+For other Python usage, run modules from `bridge/host/` or set `PYTHONPATH=bridge/host`. See the [host client guide](docs/host-client.md) for API examples.
+
+## Upstream and project boundaries
+
+- **Upstream**: official account/pairing flows, the Noise control channel, board drivers, and base Muse UI. The pinned version is recorded in the [source manifest](upstream/sources.json). Full source and development/test keys are kept only under `local/upstream/`.
+- **Project extensions**: [gadget-actell](bridge/extensions/gadget-actell/README.md), [avatar](bridge/extensions/avatar/README.md), and the [headless console](docs/headless-console.md). Their source is maintained in `bridge/extensions/`; staged SDK copies are used for build validation.
+- **SDK changes**: [patches](bridge/patches/README.md) contains only Muse Gadget SDK integration and adaptation patches. New headless files are kept synchronized between the extension directory and the patch.
+- **Actell application**: connection management, authorization, and phone execution are developed and verified directly in the separate Actell project. This repository does not provide an Actell installation patch; the historical V1 patch is no longer part of the current integration workflow.
+- **Host prototype**: `bridge/host/` supports protocol and UI regression checks. The current device component uses HTTPS directly over Wi-Fi and does not require the Muse VM Home Link transport proposed by the historical prototype.
+
+Before building, prepare a separate copy of the pinned SDK under `local/build/`, follow the patch instructions, and stage the extensions. Keep this separate from Actell's existing USB-C/NCM forwarding firmware. Target compilation, real Muse account access, USB setup, phone execution, and model image input each require separate verification; host tests do not establish physical-device acceptance.
+
+## Protocols and references
+
+- [Gadget V2](docs/protocol/gadget-v2.md) / [Host V1](docs/protocol/v1.md)
+- [Optional avatar activity](docs/optional-avatar-events.md)
+- [Muse skill](bridge/extensions/skills/gadget-actell-remote/SKILL.md)
+- [Provenance and licensing](THIRD_PARTY.md)
+
+The project's independent code follows the root Apache-2.0 LICENSE. Actell remains a separate application under its own GPL-3.0 license. Public synthetic authentication vectors are test data; real tokens, pairing information, and private keys must be stored only in `local/credentials/`.
+
+## Before sharing through Git
+
+```sh
+python3 bridge/tools/check-share.py
+git status --short
+```
+
+The checker scans tracked and non-ignored files, reporting paths and issue types without printing credentials. It does not replace manual review. Generate distributable archives from reviewed Git commits and write them to `local/`; do not archive the entire working directory.

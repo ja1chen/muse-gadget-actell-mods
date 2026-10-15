@@ -1,0 +1,36 @@
+menu "Independent Actell companion"
+config ACTELL_BRIDGE
+    bool "Enable independent LAN Actell command bridge"
+    default n
+    help
+        Uses Wi-Fi HTTPS directly, never Home Link tunnel. Requires trusted OOB
+        credentials, valid clock and Actell per-device authorization. No listener.
+config ACTELL_BRIDGE_IMAGES
+    bool "Enable experimental small JPEG command results"
+    depends on ACTELL_BRIDGE && SPIRAM
+    default n
+    help
+        Returns official camera.capture wire format. Actual Muse model image
+        visibility must be verified before coordinate planning. Maximum 256 KiB.
+config ACTELL_BRIDGE_AVATAR_ACTIVITY
+    bool "Optional verified read/write activity on the existing avatar"
+    depends on ACTELL_BRIDGE && MUSE_ENABLED
+    default n
+    help
+        Uses the separately staged approved avatar's nonblocking setters only
+        for verified running/succeeded calls. No effect if that renderer is absent.
+config ACTELL_BRIDGE_USB_SETUP
+    bool "Physical-button trusted USB development setup"
+    depends on ACTELL_BRIDGE && SOC_USB_SERIAL_JTAG_SUPPORTED
+    default n
+    help
+        Requires a verified active-low GPIO held for two seconds during the
+        first eight seconds after normal app startup (release boot straps at reset).
+        Opens native USB provisioning for 120 seconds before normal startup.
+        Never exposes secrets to LAN. Disabled by default.
+config ACTELL_SETUP_BUTTON_GPIO
+    int "Verified active-low setup button GPIO (-1 disables)"
+    depends on ACTELL_BRIDGE_USB_SETUP
+    range -1 48
+    default -1
+endmenu

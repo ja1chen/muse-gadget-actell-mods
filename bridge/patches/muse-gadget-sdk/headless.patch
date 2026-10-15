@@ -1,0 +1,380 @@
+--- a/esp32/components/muse/CMakeLists.txt
++++ b/esp32/components/muse/CMakeLists.txt
+@@ -103,7 +103,7 @@
+     elseif(CONFIG_MUSE_BOARD_AI_PASSPORT)
+         list(APPEND srcs "boards/board_ai_passport.c")
+     endif()
+-elseif(CONFIG_HOMEHUB_VOICE)
++elseif(CONFIG_HOMEHUB_VOICE OR CONFIG_MUSE_HEADLESS)
+     # The Voice PE board uses just the Hatch voice session; the project's main/
+     # voice_muse_chat.c stands in for the Muse settings, Wi-Fi and Link hooks.
+     list(APPEND srcs "muse_chat.c" "muse_account_api.c" "muse_chat_session.cpp" "muse_chat_text.c" "muse_text.c")
+--- a/esp32/main/CMakeLists.txt
++++ b/esp32/main/CMakeLists.txt
+@@ -45,6 +45,7 @@
+     esp_event
+     esp_netif
+     esp_http_client
++    esp_http_server
+     esp_https_ota
+     app_update
+     esp_app_format
+@@ -109,8 +110,14 @@
+     endif()
+ endif()
+ 
++if(CONFIG_MUSE_HEADLESS)
++    list(APPEND GADGET_SRCS "voice_muse_chat.c" "headless_console.c")
++    set(HEADLESS_EMBED "headless.html")
++endif()
++
+ idf_component_register(
+     SRCS ${GADGET_SRCS}
++    EMBED_TXTFILES ${HEADLESS_EMBED}
+     INCLUDE_DIRS "."
+     PRIV_INCLUDE_DIRS "../avatar"
+     REQUIRES ${GADGET_REQUIRES}
+--- a/esp32/main/app.c
++++ b/esp32/main/app.c
+@@ -15,6 +15,9 @@
+  */
+ 
+ #include "app.h"
++#if CONFIG_MUSE_HEADLESS
++#include "headless_console.h"
++#endif
+ #include "stack_monitor.h"
+ 
+ #include <string.h>
+@@ -2250,7 +2253,7 @@
+ }
+ #endif  // CONFIG_MUSE_ENABLED
+ 
+-#if CONFIG_MUSE_ENABLED || CONFIG_HOMEHUB_VOICE
++#if CONFIG_MUSE_ENABLED || CONFIG_HOMEHUB_VOICE || CONFIG_MUSE_HEADLESS
+ // Muse's and the voice board's own Hatch session reach the VM with these.
+ typedef struct {
+     const char *want_vm;
+@@ -2621,7 +2624,7 @@
+     }
+ 
+     s_setup_stage = setup_complete ? "done" : "idle";
+-#if CONFIG_MUSE_ENABLED
++#if CONFIG_MUSE_ENABLED || (CONFIG_MUSE_HEADLESS && CONFIG_MUSE_HEADLESS_BUTTON_GPIO < 0)
+     // Muse's talk button confirms pairing and its menu resets setup; the Link
+     // button GPIO may be a display or codec pin on these boards.
+     (void)on_button_short_press;
+@@ -2632,6 +2635,9 @@
+                      on_button_long_press)) {
+         ESP_LOGW(TAG, "button init failed — physical setup reset unavailable");
+     }
++#endif
++#if CONFIG_MUSE_HEADLESS
++    headless_console_start();
+ #endif
+ #if CONFIG_HOMEHUB_VOICE
+     voice_init();
+--- a/esp32/main/app.h
++++ b/esp32/main/app.h
+@@ -60,7 +60,7 @@
+ void app_reset_setup_async(void);
+ #endif
+ 
+-#if CONFIG_MUSE_ENABLED || CONFIG_HOMEHUB_VOICE
++#if CONFIG_MUSE_ENABLED || CONFIG_HOMEHUB_VOICE || CONFIG_MUSE_HEADLESS
+ // Looks up a VM credential from the paired account (want_vm: a VM id, or empty
+ // for the preferred VM). *vm_token is heap; free() it.
+ bool app_hatch_vm_credentials(const char *want_vm, char *vm_id, size_t id_cap,
+--- a/esp32/main/button.c
++++ b/esp32/main/button.c
+@@ -25,7 +25,11 @@
+ 
+ static const char *TAG = "link.button";
+ 
+-#define BTN_GPIO           CONFIG_HOMEHUB_BUTTON_GPIO
++#if CONFIG_MUSE_HEADLESS && CONFIG_MUSE_HEADLESS_BUTTON_GPIO >= 0
++#define BTN_GPIO CONFIG_MUSE_HEADLESS_BUTTON_GPIO
++#else
++#define BTN_GPIO CONFIG_HOMEHUB_BUTTON_GPIO
++#endif
+ #define LONG_PRESS_MS      5000
+ #define SHORT_PRESS_MAX_MS 1000
+ #define DOUBLE_CLICK_MS    400
+--- a/esp32/main/voice_muse_chat.c
++++ b/esp32/main/voice_muse_chat.c
+@@ -88,7 +88,11 @@
+ 
+ // No screen to show replies on: anything played goes to the speaker.
+ bool muse_settings_speaker_on(void) {
++#if CONFIG_MUSE_HEADLESS
++    return false;
++#else
+     return true;
++#endif
+ }
+ 
+ // No screen either, so reply text is never shown; Muse's default page.
+--- a/esp32/components/muse/muse_chat_text.c
++++ b/esp32/components/muse/muse_chat_text.c
+@@ -253,6 +253,10 @@
+         }
+         line[n++] = '}';
+         line[n++] = '\n';
++#if CONFIG_MUSE_HEADLESS
++        extern void headless_console_observe(const char *, size_t);
++        headless_console_observe(line, n);
++#endif
+         fwrite(line, 1, n, stdout);
+         fflush(stdout);
+     } while (text && *text);
+--- a/esp32/components/muse/Kconfig
++++ b/esp32/components/muse/Kconfig
+@@ -177,6 +177,31 @@
+             GPIO, and set that GPIO here. -1 leaves push-to-talk recording
+             silence.
+ 
++    config MUSE_HEADLESS
++        bool "Headless ESP32-S3 typed chat (experimental)"
++        depends on MUSE_BOARD_NONE && IDF_TARGET_ESP32S3 && SPIRAM && !HOMEHUB_VOICE
++        default n
++        help
++            Reuses the paired Muse text session without display/audio drivers.
++            Prototype source; board build and hardware validation required.
++
++    config MUSE_HEADLESS_BUTTON_GPIO
++        int "Verified physical pairing button GPIO (-1 disables)"
++        depends on MUSE_HEADLESS
++        range -1 48
++        default -1
++        help
++            Set only after verifying the specific board schematic. A negative
++            value leaves pairing confirmation unavailable; it never bypasses it.
++
++    config MUSE_HEADLESS_HTTP_DEBUG
++        bool "INSECURE plaintext LAN debug text console"
++        depends on MUSE_HEADLESS
++        default n
++        help
++            Explicit development opt-in. Boot token is printed on serial.
++            Use only on an isolated trusted LAN. No TLS; not production-ready.
++
+     config MUSE_HATCH
+         bool "Muse's own voice session"
+         depends on MUSE_ENABLED
+--- /dev/null
++++ b/esp32/main/headless_console.c
+@@ -0,0 +1,193 @@
++/* Independent development-only headless HTTP bridge; Apache-2.0.
++ * No Actell credentials or tools are exposed by this firmware. */
++#include "headless_console.h"
++#include <stdbool.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <inttypes.h>
++#include "freertos/FreeRTOS.h"
++#include "freertos/task.h"
++#include "esp_http_server.h"
++#include "esp_heap_caps.h"
++#include "esp_netif.h"
++#include "esp_random.h"
++#include "esp_timer.h"
++#include "esp_log.h"
++#include "cJSON.h"
++#include "muse_chat.h"
++#include "voice_muse_chat.h"
++#include "wifi_mgr.h"
++
++#define EVENTS 64
++#define EVENT_SIZE 400
++#define TEXT_LIMIT 4096
++static portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
++static char (*ring)[EVENT_SIZE]; /* 25.6 KiB PSRAM, allocated before chat task. */
++static uint32_t next_seq;
++static bool active;
++static bool oversized_event;
++#if CONFIG_MUSE_HEADLESS_HTTP_DEBUG
++static int64_t last_submit, last_events, last_cancel;
++static char access_token[33];
++#endif
++extern const uint8_t page_start[] asm("_binary_headless_html_start");
++extern const uint8_t page_end[] asm("_binary_headless_html_end");
++
++/* Runs in the existing Muse producer task. Bounded copy; never blocks on I/O. */
++void headless_console_observe(const char *line, size_t len) {
++    if (!ring || len < 7 || memcmp(line, "@chat ", 6)) return;
++    const char *json = line + 6;
++    size_t n = len - 6;
++    while (n && (json[n-1] == '\n' || json[n-1] == '\r')) --n;
++    if (n >= EVENT_SIZE) { portENTER_CRITICAL(&lock); oversized_event=true; portEXIT_CRITICAL(&lock); return; }
++    portENTER_CRITICAL(&lock);
++    ++next_seq;
++    memcpy(ring[next_seq % EVENTS], json, n);
++    ring[next_seq % EVENTS][n] = '\0';
++    if (strstr(ring[next_seq % EVENTS], "\"type\":\"done\"") || strstr(ring[next_seq % EVENTS], "\"type\":\"error\"")) active = false;
++    portEXIT_CRITICAL(&lock);
++}
++#if CONFIG_MUSE_HEADLESS_HTTP_DEBUG
++static esp_err_t reply(httpd_req_t *r, const char *status, const char *text) {
++    httpd_resp_set_status(r, status);
++    httpd_resp_set_type(r, "application/json");
++    httpd_resp_set_hdr(r, "Cache-Control", "no-store");
++    httpd_resp_set_hdr(r, "X-Content-Type-Options", "nosniff");
++    return httpd_resp_sendstr(r, text);
++}
++static bool same_origin(httpd_req_t *r, bool require_origin) {
++    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
++    esp_netif_ip_info_t ip;
++    if (!netif || esp_netif_get_ip_info(netif, &ip) != ESP_OK || !ip.ip.addr) return false;
++    char expected[48], host[64], origin[80], full[80];
++    snprintf(expected, sizeof(expected), IPSTR, IP2STR(&ip.ip));
++    if (httpd_req_get_hdr_value_str(r,"Host",host,sizeof(host)) != ESP_OK) return false;
++    snprintf(full,sizeof(full),"%s:80",expected);
++    if (strcmp(host,expected) && strcmp(host,full)) return false;
++    if (!require_origin) return true;
++    if (httpd_req_get_hdr_value_str(r,"Origin",origin,sizeof(origin)) != ESP_OK) return false;
++    snprintf(full,sizeof(full),"http://%s",host);
++    return !strcmp(origin,full);
++}
++static bool authorized(httpd_req_t *r) {
++    char got[40];
++    if (!same_origin(r, true) || httpd_req_get_hdr_value_len(r,"X-Console-Token") != 32 ||
++        httpd_req_get_hdr_value_str(r,"X-Console-Token",got,sizeof(got)) != ESP_OK) return false;
++    unsigned diff = 0;
++    for (size_t i=0;i<32;i++) diff |= (unsigned char)got[i] ^ (unsigned char)access_token[i];
++    return diff == 0;
++}
++static cJSON *body(httpd_req_t *r) {
++    if (r->content_len <= 0 || r->content_len > TEXT_LIMIT + 100) return NULL;
++    char *text = malloc(r->content_len + 1);
++    if (!text) return NULL;
++    int pos=0;
++    while (pos < r->content_len) {
++        int n=httpd_req_recv(r,text+pos,r->content_len-pos);
++        if(n<=0){free(text);return NULL;}
++        pos+=n;
++    }
++    text[pos]='\0';
++    cJSON *obj=cJSON_ParseWithLength(text,pos+1);
++    free(text);
++    return obj;
++}
++static esp_err_t index_get(httpd_req_t *r) {
++    if (!same_origin(r, false)) return reply(r,"403 Forbidden","{\"error\":\"host rejected\"}");
++    httpd_resp_set_type(r,"text/html; charset=utf-8");
++    httpd_resp_set_hdr(r,"Cache-Control","no-store");
++    httpd_resp_set_hdr(r,"X-Frame-Options","DENY");
++    httpd_resp_set_hdr(r,"Content-Security-Policy","default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
++    return httpd_resp_send(r,(const char *)page_start,page_end-page_start-1);
++}
++static esp_err_t api_post(httpd_req_t *r) {
++    if(!authorized(r)) return reply(r,"403 Forbidden","{\"error\":\"token or origin rejected\"}");
++    int64_t now_request=esp_timer_get_time();
++    int64_t *rate = !strcmp(r->uri,"/api/events") ? &last_events :
++                    !strcmp(r->uri,"/api/cancel") ? &last_cancel : NULL;
++    if(rate && now_request-*rate<100000) return reply(r,"429 Too Many Requests","{\"error\":\"rate limited\"}");
++    if(rate) *rate=now_request;
++    cJSON *obj=body(r);
++    if(!cJSON_IsObject(obj)){cJSON_Delete(obj);return reply(r,"400 Bad Request","{\"error\":\"invalid bounded JSON body\"}");}
++    if(!strcmp(r->uri,"/api/text")) {
++        const cJSON *text=cJSON_GetObjectItemCaseSensitive(obj,"text");
++        if(!cJSON_IsString(text) || !text->valuestring[0] || strlen(text->valuestring)>TEXT_LIMIT){cJSON_Delete(obj);return reply(r,"400 Bad Request","{\"error\":\"text must be 1..4096 UTF-8 bytes\"}");}
++        int64_t now=esp_timer_get_time();
++        portENTER_CRITICAL(&lock); bool busy=active; portEXIT_CRITICAL(&lock);
++        if(busy || now-last_submit<1000000){cJSON_Delete(obj);return reply(r,"409 Conflict","{\"error\":\"turn active or submit rate limited\"}");}
++        voice_hatch_refresh();
++        if(!muse_hatch_ready()){cJSON_Delete(obj);return reply(r,"503 Service Unavailable","{\"error\":\"Muse not paired or Wi-Fi unavailable\"}");}
++        char *owned=strdup(text->valuestring);
++        cJSON_Delete(obj);
++        if(!owned)return reply(r,"503 Service Unavailable","{\"error\":\"out of memory\"}");
++        portENTER_CRITICAL(&lock); active=true; portEXIT_CRITICAL(&lock);
++        last_submit=now;
++        muse_hatch_text_turn(owned); /* Actual SDK entry point owns/frees buffer. */
++        return reply(r,"202 Accepted","{\"queued\":true,\"note\":\"SDK queued; wait for sent/done events\"}");
++    }
++    if(!strcmp(r->uri,"/api/cancel")) {
++        cJSON_Delete(obj); muse_hatch_text_cancel();
++        return reply(r,"202 Accepted","{\"cancel_requested\":true,\"note\":\"wait for terminal event; remote actions may already have run\"}");
++    }
++    const cJSON *cursor=cJSON_GetObjectItemCaseSensitive(obj,"after");
++    double requested=cJSON_IsNumber(cursor)?cursor->valuedouble:0;
++    if(requested<0 || requested>UINT32_MAX || requested!=(uint32_t)requested){cJSON_Delete(obj);return reply(r,"400 Bad Request","{\"error\":\"invalid cursor\"}");}
++    uint32_t after=(uint32_t)requested;
++    cJSON_Delete(obj);
++    char copy[EVENT_SIZE];
++    uint32_t latest;bool running,oversized;
++    portENTER_CRITICAL(&lock); latest=next_seq;running=active;oversized=oversized_event;portEXIT_CRITICAL(&lock);
++    uint32_t first=latest>=EVENTS?latest-EVENTS+1:1;
++    bool lost=oversized || after+1<first || after>latest;
++    if(after<first-1 || after>latest)after=first-1;
++    cJSON *out=cJSON_CreateObject(), *events=cJSON_CreateArray();
++    if(!out || !events){cJSON_Delete(out);cJSON_Delete(events);return reply(r,"503 Service Unavailable","{\"error\":\"out of memory\"}");}
++    cJSON_AddNumberToObject(out,"cursor",latest);cJSON_AddBoolToObject(out,"active",running);
++    muse_hatch_status_t status;muse_hatch_status(&status);
++    cJSON_AddStringToObject(out,"status",muse_hatch_state_name(status.state));
++    cJSON_AddStringToObject(out,"detail",status.detail);
++    cJSON_AddItemToObject(out,"events",events);
++    for(uint32_t i=after+1;i<=latest;i++){
++        portENTER_CRITICAL(&lock);
++        bool overwritten=next_seq-i>=EVENTS;
++        if(!overwritten)memcpy(copy,ring[i%EVENTS],EVENT_SIZE);
++        portEXIT_CRITICAL(&lock);
++        if(overwritten){lost=true;continue;}
++        cJSON *event=cJSON_Parse(copy);
++        if(event)cJSON_AddItemToArray(events,event);else lost=true;
++    }
++    cJSON_AddBoolToObject(out,"lost",lost);
++    char *encoded=cJSON_PrintUnformatted(out);cJSON_Delete(out);
++    if(!encoded)return reply(r,"503 Service Unavailable","{\"error\":\"out of memory\"}");
++    esp_err_t result=reply(r,"200 OK",encoded);free(encoded);return result;
++}
++#endif
++static void refresh_task(void *unused) {
++    (void)unused;
++    for(;;){voice_hatch_refresh();vTaskDelay(pdMS_TO_TICKS(1000));}
++}
++void headless_console_start(void) {
++    ring=heap_caps_calloc(EVENTS, EVENT_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
++    if(!ring){ESP_LOGE("headless","PSRAM event buffer unavailable; headless session disabled");return;}
++    voice_hatch_refresh();
++    muse_hatch_start();
++    if(xTaskCreate(refresh_task,"headless-config",3072,NULL,2,NULL)!=pdPASS) {
++        ESP_LOGE("headless","config refresh unavailable; HTTP disabled");return;
++    }
++#if CONFIG_MUSE_HEADLESS_HTTP_DEBUG
++    uint8_t bytes[16];esp_fill_random(bytes,sizeof(bytes));
++    for(size_t i=0;i<sizeof(bytes);i++)snprintf(access_token+i*2,3,"%02x",bytes[i]);
++    httpd_config_t config=HTTPD_DEFAULT_CONFIG();
++    config.max_open_sockets=3;config.lru_purge_enable=true;config.stack_size=8192;
++    config.recv_wait_timeout=3;config.send_wait_timeout=3;
++    httpd_handle_t server=NULL;
++    if(httpd_start(&server,&config)!=ESP_OK){ESP_LOGE("headless","HTTP start failed");return;}
++    httpd_uri_t root={.uri="/",.method=HTTP_GET,.handler=index_get};
++    httpd_register_uri_handler(server,&root);
++    const char *routes[]={"/api/events","/api/text","/api/cancel"};
++    for(size_t i=0;i<3;i++){httpd_uri_t route={.uri=routes[i],.method=HTTP_POST,.handler=api_post};httpd_register_uri_handler(server,&route);}
++    /* Deliberately serial only, never ESP_LOG (support logging can capture it). */
++    printf("\nHEADLESS DEBUG: isolated trusted LAN only; HTTP/chat is plaintext.\nConsole boot token: %s\n",access_token);fflush(stdout);
++#endif
++}
+--- /dev/null
++++ b/esp32/main/headless_console.h
+@@ -0,0 +1,4 @@
++#pragma once
++#include <stddef.h>
++void headless_console_start(void);
++void headless_console_observe(const char *line, size_t len);
+--- /dev/null
++++ b/esp32/main/headless.html
+@@ -0,0 +1,11 @@
++<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Muse Headless · ESP32-S3</title><style>body{max-width:780px;margin:40px auto;padding:20px;background:#111b16;color:#e4f5e8;font:16px/1.6 system-ui}aside{border:1px solid #d7a657;padding:16px;color:#f3cf93}input,textarea,button{font:inherit;padding:10px;margin:8px 0;box-sizing:border-box}input,textarea{width:100%;background:#203327;color:white;border:1px solid #73927d}button{background:#b7e7bf;border:0;border-radius:6px;cursor:pointer}button:disabled{opacity:.5}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:450px;overflow:auto}</style><h1>Muse 无屏文字台</h1><aside>开发模式：仅在隔离、可信的局域网使用。HTTP 聊天与临时令牌是明文；不要通过公网或不可信 Wi-Fi 访问。此页面调用真实 Muse 会话，发送后 Agent 可能开始执行任务。不会直接提供 Actell 工具或密钥。</aside><label>从当前启动串口读取的 Console boot token<input id="token" type="password" autocomplete="off" maxlength="32" spellcheck="false"></label><button id="connect">连接</button><p id="status" role="status">未连接</p><label>文字（最多 4096 UTF-8 字节）<textarea id="text" rows="4" maxlength="4096"></textarea></label><button id="send" disabled>明确发送给 Muse</button><button id="cancel" disabled>请求取消</button><pre id="out" aria-live="polite"></pre><script>
++'use strict';const $=x=>document.getElementById(x);let token='',cursor=0,connected=false,running=false,pending=false,timer=null,generation=0,lines=[];
++function log(s){lines.push(typeof s==='string'?s:JSON.stringify(s));lines=lines.slice(-120);$('out').textContent=lines.join('\n');}
++function controls(){$('send').disabled=!connected||running||pending;$('cancel').disabled=!connected||!running;}
++async function api(path,data){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Console-Token':token},body:JSON.stringify(data),cache:'no-store'});const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);return j;}
++async function poll(g){try{const j=await api('/api/events',{after:cursor});if(g!==generation)return;cursor=j.cursor;running=j.active;connected=true;$('status').textContent=j.status+' · '+j.detail;if(j.lost)log('警告：事件缓冲已溢出或板已重启，历史不完整。请到 Muse app 查看完整会话。');j.events.forEach(log);controls();timer=setTimeout(()=>poll(g),1000);}catch(e){if(g!==generation)return;connected=false;controls();$('status').textContent='连接中断，请重新连接；不会重发文字。';log(e.message);}}
++$('connect').onclick=()=>{clearTimeout(timer);generation++;token=$('token').value.trim();$('token').value='';if(!/^[0-9a-f]{32}$/.test(token)){log('请输入串口的 32 位启动 token。');return;}cursor=0;poll(generation);};
++$('send').onclick=async()=>{if(!connected||running||pending)return;const text=$('text').value.trim();if(!text||new TextEncoder().encode(text).length>4096){log('文字必须为 1..4096 UTF-8 字节。');return;}pending=true;controls();try{log(await api('/api/text',{text}));running=true;}catch(e){log('发送未确认；不会自动重发：'+e.message);}finally{pending=false;controls();}};
++$('cancel').onclick=async()=>{$('cancel').disabled=true;try{log(await api('/api/cancel',{}));}catch(e){log('取消未确认：'+e.message);}finally{controls();}};
++window.addEventListener('pagehide',()=>{clearTimeout(timer);generation++;token='';});
++</script></html>

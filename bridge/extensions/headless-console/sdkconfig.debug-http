@@ -1,0 +1,2 @@
+# Explicit opt-in only: isolates development LAN; HTTP is NOT encrypted.
+CONFIG_MUSE_HEADLESS_HTTP_DEBUG=y
