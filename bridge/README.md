@@ -7,6 +7,7 @@ bridge/
 │   ├── gadget-actell/    # 独立 ESP-IDF Actell 命令组件
 │   ├── avatar/           # 原创角色与可选手机动作
 │   ├── headless-console/ # 无屏文字控制台
+│   ├── muse-fonts/       # 共享只读资源、按需字体解码与像素分页
 │   └── skills/           # Muse 扩展使用说明
 ├── patches/              # 仅对 Muse Gadget SDK 的修改
 └── tools/                # 开发入口、分享检查与可复用验证程序

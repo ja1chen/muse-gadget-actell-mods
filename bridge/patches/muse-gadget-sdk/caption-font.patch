@@ -1,0 +1,154 @@
+# Base: Muse Gadget SDK 812c46f9fe42b69d916613a9dc702cbac5ff7b54
+--- a/esp32/components/muse/muse_ui.c
++++ b/esp32/components/muse/muse_ui.c
+@@ -43,6 +43,10 @@
+ #include "muse_settings_ui.h"
+ #include "muse_state.h"
+ #include "muse_text.h"
++
++#if CONFIG_ACTELL_CAPTION_FONT
++#include "actell_caption_font.h"
++#endif
+ #include "muse_wifi.h"
+ #if CONFIG_MUSE_WATCHER_CAMERA
+ #include "boards/watcher_camera.h"
+@@ -471,6 +475,9 @@
+  * falls back to Unifont's 16x16 CJK, the same cell, for what unscii lacks. */
+ static const lv_font_t *caption_font(void)
+ {
++#if CONFIG_ACTELL_CAPTION_FONT
++    if (actell_caption_init()) return actell_caption_font();
++#endif
+ #if CONFIG_MUSE_CJK_FONT
+     static lv_font_t font;
+     if (!font.get_glyph_dsc) {
+@@ -711,13 +718,17 @@
+     l->px = MUSE_PX_W * cell;
+     l->y = s_big_y;
+     l->align = LV_TEXT_ALIGN_CENTER;
+-    int h = 3 * pitch - CAPTION_LINE_SPACE;
++    int heard_lines = 3;
++#if CONFIG_ACTELL_CAPTION_FONT
++    if (actell_caption_active()) heard_lines = 2;
++#endif
++    int h = heard_lines * pitch - CAPTION_LINE_SPACE;
+     int art_bottom = l->y + l->px / 2 - ART_BLANK_ROWS * cell;
+-    set_reply_box(l, CAPTION_W / cw, 3, reply_bottom(CAPTION_W, ring_in) - h, cw, pitch);
++    set_reply_box(l, CAPTION_W / cw, heard_lines, reply_bottom(CAPTION_W, ring_in) - h, cw, pitch);
+     for (int c = 24; c > l->cols; c--) {   /* wider if it still clears Muse */
+         int top = reply_bottom(c * cw, ring_in) - h;
+         if (top >= art_bottom + 6 && fits_across(c * cw, top, ring_in)) {
+-            set_reply_box(l, c, 3, top, cw, pitch);
++            set_reply_box(l, c, heard_lines, top, cw, pitch);
+             break;
+         }
+     }
+@@ -750,9 +761,19 @@
+              s_answers[ANSWER_HEARD].lines, l->cols, l->lines);
+ 
+     s_reply_lbl = make_label(face, font, COLOR_CAPTION);
++#if CONFIG_ACTELL_CAPTION_FONT
++    if (actell_caption_active()) {
++        /* First page can be requested before the first UI tick. */
++        int initial = muse_settings_speaker_on() ? ANSWER_HEARD : ANSWER_READ;
++        actell_caption_set_page(s_answers[initial].w, s_answers[initial].lines);
++    }
++#endif
+     lv_obj_set_style_text_line_space(s_reply_lbl, CAPTION_LINE_SPACE, 0);
+     /* Pages come wrapped to fit; the transcript while thinking doesn't. */
+     lv_label_set_long_mode(s_reply_lbl, LV_LABEL_LONG_MODE_WRAP);
++#if CONFIG_ACTELL_CAPTION_FONT
++    if (actell_caption_active()) lv_label_set_long_mode(s_reply_lbl, LV_LABEL_LONG_MODE_CLIP);
++#endif
+     lv_obj_remove_flag(s_reply_lbl, LV_OBJ_FLAG_SCROLLABLE);
+     lv_obj_add_flag(s_reply_lbl, LV_OBJ_FLAG_HIDDEN);
+ 
+@@ -857,11 +878,20 @@
+      * whose blank bottom rows can tuck in behind the meter.
+      */
+     int ring_in = (s_w < s_h ? s_w : s_h) / 2 - 10;   /* the ring's inner edge */
+-    int cap_h = 2 * lv_font_get_line_height(&lv_font_unscii_16) + CAPTION_LINE_SPACE;
++    int cap_h = 2 * lv_font_get_line_height(caption_font()) + CAPTION_LINE_SPACE;
+     int cap_bottom = 179;                              /* a 466 px circle's; fine for rectangles */
+     if (muse_board->round) {
+         cap_bottom = (int)sqrtf((float)(ring_in * ring_in - CAPTION_W * CAPTION_W / 4)) - 3;
+     }
++#if CONFIG_ACTELL_CAPTION_FONT
++    if (actell_caption_active() && !muse_board->round) {
++        /* Use the spare bottom margin for taller glyphs before lifting Muse.
++         * Keep the original meter/character position when two lines fit. */
++        int old_h = 2 * lv_font_get_line_height(&lv_font_unscii_16) + CAPTION_LINE_SPACE;
++        cap_bottom += cap_h - old_h;
++        if (cap_bottom > s_h / 2 - 3) cap_bottom = s_h / 2 - 3;
++    }
++#endif
+     int cap_top = cap_bottom - cap_h;
+     int meter_y = cap_top - 6 - METER_SEG_PX / 2;
+     int art_bottom = meter_y - METER_SEG_PX / 2 - 4;
+@@ -1480,6 +1510,9 @@
+         if (layout != s_page_for) {
+             muse_state_set_page(s_answers[layout].cols, s_answers[layout].lines);
+             s_page_for = layout;
++#if CONFIG_ACTELL_CAPTION_FONT
++            if (actell_caption_active()) actell_caption_set_page(s_answers[layout].w, s_answers[layout].lines);
++#endif
+         }
+         if (mode == MUSE_MODE_THINKING || mode == MUSE_MODE_SPEAKING) {
+             answer = layout;
+--- a/esp32/components/muse/muse_state.c
++++ b/esp32/components/muse/muse_state.c
+@@ -27,6 +27,10 @@
+ 
+ #include "muse_text.h"
+ 
++#if CONFIG_ACTELL_CAPTION_FONT
++#include "actell_caption_font.h"
++#endif
++
+ #define HAPPY_SECS 1.6f
+ 
+ #define AWAKE_BIT BIT0   /* while !s_asleep */
+@@ -116,6 +120,10 @@
+     va_start(ap, fmt);
+     vsnprintf(buf, sizeof(buf), fmt, ap);
+     va_end(ap);
++#if CONFIG_ACTELL_CAPTION_FONT
++    if (actell_caption_active()) actell_caption_normalize(buf, buf, sizeof(buf));
++    else
++#endif
+     muse_text_to_ascii(buf, sizeof(buf));   /* replies have curly quotes and dashes */
+ 
+     portENTER_CRITICAL(&s_lock);
+--- a/esp32/components/muse/muse_chat_text.c
++++ b/esp32/components/muse/muse_chat_text.c
+@@ -25,6 +25,10 @@
+ 
+ #include "muse_state.h"
+ #include "muse_text.h"
++
++#if CONFIG_ACTELL_CAPTION_FONT
++#include "actell_caption_font.h"
++#endif
+ 
+ #define CAPTION_CHARS 32   /* what fits across the round screen */
+ #define CONSOLE_LINE 400   /* one "@chat" line */
+@@ -152,6 +156,9 @@
+  */
+ bool muse_hatch_caption_at(const char *text, size_t at, char *out, size_t cap)
+ {
++#if CONFIG_ACTELL_CAPTION_FONT
++    if (actell_caption_active()) return actell_caption_page(text, at, out, cap);
++#endif
+     int cols, lines;
+     muse_state_page(muse_text_has_cjk(text), &cols, &lines);
+     const char *p = text, *start;
+--- a/esp32/components/muse/CMakeLists.txt
++++ b/esp32/components/muse/CMakeLists.txt
+@@ -117,6 +117,7 @@
+     esp_lcd esp_adc esp_driver_i2s esp_driver_ledc esp_driver_spi esp_driver_uart esp_wifi
+     esp_driver_pcnt)
+ list(APPEND muse_priv_requires camera)
++list(APPEND muse_priv_requires actell_fonts)
+ 
+ idf_component_register(
+     SRCS ${srcs}

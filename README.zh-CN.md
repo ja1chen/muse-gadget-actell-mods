@@ -53,6 +53,8 @@ python3 bridge/tools/dev.py mock
 
 本工程独立代码遵守根目录 Apache-2.0 LICENSE；Actell 作为独立应用保留其自身 GPL-3.0 许可。公开合成鉴权向量属于测试数据，真实 token、配对信息和私钥只能存放在 `local/credentials/`。
 
+实验性[字幕字体与共享资源](docs/caption-font-integration.md)提供默认关闭的读取器、有界逐字形解码、像素分页、原字体回退和公开配置固件构建。[资源包](docs/read-only-resources.md)中的 Actell Device Sans 候选来自固定 Adobe 字体，字体单独保留 OFL-1.1 授权，生成数据留在 `local/`。资源布局保留原有数据分区与双 OTA 槽位；已完成首次资源部署和固件启动核查；最终字体选型、显示/性能验收及回滚验证仍待完成。
+
 ## Git 分享前
 
 ```sh

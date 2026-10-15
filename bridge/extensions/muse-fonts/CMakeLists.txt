@@ -1,0 +1,6 @@
+set(srcs)
+set(deps esp_partition mbedtls espressif__cjson)
+if(CONFIG_ACTELL_CAPTION_FONT AND CONFIG_MUSE_ENABLED)
+    list(APPEND srcs src/actell_font_core.c src/actell_caption_layout.c src/actell_caption_font.c)
+endif()
+idf_component_register(SRCS ${srcs} INCLUDE_DIRS include PRIV_REQUIRES ${deps})

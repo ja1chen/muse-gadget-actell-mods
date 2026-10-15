@@ -6,10 +6,11 @@
 |---|---|---|
 | `muse-gadget-sdk/headless.patch` | 无屏构建入口、文字事件和开发 HTTP 控制台 | 新增文件同时保留于 `bridge/extensions/headless-console/`，需同步 |
 | `muse-gadget-sdk/actell-hook.patch` | 官方命令注册/调用、会话、USB setup 和组件依赖接点 | 本补丁；独立组件位于 `bridge/extensions/gadget-actell/` |
+| `muse-gadget-sdk/caption-font.patch` | 可选共享字体、实际行高与像素分页接点 | 本补丁；独立实现位于 `bridge/extensions/muse-fonts/` |
 
 `actell-hook.patch` 修改的是 Muse SDK 的注册与调用接点，名称中的 Actell 表示集成对象；它不是针对 Actell 工程的补丁。
 
-Muse 工作副本放在 `local/build/`。若使用 headless，先检查并应用 `headless.patch`，再运行 `bridge/extensions/gadget-actell/tools/stage.py`，最后按需运行 `bridge/extensions/avatar/tools/stage.py`。Avatar 使用官方 override 入口，不需要修改上游 CMake。
+Muse 工作副本放在 `local/build/`。若使用 headless，先检查并应用 `headless.patch`，再运行 `bridge/extensions/gadget-actell/tools/stage.py`，按需暂存 avatar，最后按需运行 `bridge/extensions/muse-fonts/tools/stage.py` 接入共享资源。Avatar 使用官方 override 入口，不需要修改上游 CMake。
 
 ```sh
 git -C local/build/sdk-copy apply --check "$PWD/bridge/patches/muse-gadget-sdk/headless.patch"
@@ -17,6 +18,8 @@ git -C local/build/sdk-copy apply "$PWD/bridge/patches/muse-gadget-sdk/headless.
 python3 bridge/extensions/gadget-actell/tools/stage.py local/build/sdk-copy --check
 python3 bridge/extensions/gadget-actell/tools/stage.py local/build/sdk-copy
 python3 bridge/extensions/avatar/tools/stage.py --sdk-root local/build/sdk-copy
+python3 bridge/extensions/muse-fonts/tools/stage.py local/build/sdk-copy --check
+python3 bridge/extensions/muse-fonts/tools/stage.py local/build/sdk-copy
 ```
 
 应用前需存在新的、完整的固定 SDK 副本；脚本拒绝覆盖已有组件/角色。删除暂存副本不会丢失这里保存的扩展与补丁。
