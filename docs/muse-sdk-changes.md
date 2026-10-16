@@ -2,7 +2,7 @@
 
 按类别概括本项目相对上游 SDK 的适配。固定基线见 [来源清单](../upstream/sources.json)，新增能力见 [扩展功能索引](muse-sdk-extensions.md)。
 
-- **2.16 实体键适配**：仅本板拆分扬声器、PWR 与 Talk，新增可取消的可靠 PMU 读清与硬件长按接入，限制休眠等待并调整顶部状态图标；保留其他板输入和旧 PMU 接口，安装检查兼容经核验的 Avatar/字体组合；组合固件刷机、启动及基础按键/图标人工核查已通过，长按时序与功耗待验收。见 [按键扩展](../bridge/extensions/waveshare-216-controls/README.md)。
+- **2.16 实体键适配**：仅本板拆分扬声器、PWR 与 Talk，新增可取消的可靠 PMU 读清与硬件长按接入，限制休眠等待并调整顶部无框状态图标；保留其他板输入和旧 PMU 接口，安装检查兼容经核验的 Avatar/字体组合；组合固件刷机、启动及基础按键/图标人工核查已通过，长按时序与功耗待验收。见 [按键扩展](../bridge/extensions/waveshare-216-controls/README.md)。
 - **Actell 接入**：将独立 Actell 组件接入官方命令注册、调用和会话生命周期，增加可选 USB 初始配置入口；保留官方账户、配对和控制通道。见 [补丁说明](../bridge/patches/README.md) 与 [组件说明](../bridge/extensions/gadget-actell/README.md)。
 - **无屏适配**：复用 Muse 文字会话，调整无屏构建与启动流程，增加文字事件观察和可选开发网页。见 [无屏控制台](headless-console.md)。
 - **角色覆盖**：使用上游覆盖入口接入 v13，并通过薄改动分离原生网格与显示布局、增加编译回退和小头像重绘保护；保留现有构建机制及字体/TTS 接点，头部距离预筛复用原安装入口与精确缓存，不改变 UI 刷新逻辑。见 [角色说明](../bridge/extensions/avatar/README.md)。
