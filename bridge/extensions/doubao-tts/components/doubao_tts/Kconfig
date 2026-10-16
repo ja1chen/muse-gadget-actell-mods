@@ -5,10 +5,28 @@ config DOUBAO_TTS
     default y if DOUBAO_TTS_API_KEY != ""
     default n
     help
-        Sends completed voice-turn reply text to Doubao over verified HTTPS.
+        Sends completed voice-turn reply text to Doubao over verified TLS.
         Console text turns remain text only. PCM16 mono at 16 kHz.
 config DOUBAO_TTS_API_KEY
     string "Doubao API key (private build input)"
     depends on MUSE_HATCH && MUSE_ENABLED
     default ""
+config DOUBAO_TTS_BIDIRECTIONAL
+    bool "Use bidirectional WebSocket TTS (otherwise HTTP streaming)"
+    depends on DOUBAO_TTS
+    default y
+    select WS_TRANSPORT
+    select WS_DYNAMIC_BUFFER
+    help
+        Select the transport at compile time. Enabled: bidirectional WebSocket;
+        disabled: the existing HTTP unidirectional implementation. No runtime
+        fallback or automatic replay between transports. No extra secret fields.
+config WS_BUFFER_SIZE
+    default 4096 if DOUBAO_TTS_BIDIRECTIONAL
+    range 4096 65536 if DOUBAO_TTS_BIDIRECTIONAL
+    help
+        Doubao's upgrade response headers can exceed the IDF 1 KiB default.
+        Bidirectional mode requires at least 4 KiB; explicit larger buffers
+        remain supported. Dynamic transport buffers are freed after the
+        upgrade's buffered data is consumed.
 endmenu

@@ -30,10 +30,12 @@ python3 bridge/tools/dev.py mock
 
 其他 Python 使用方式：从 `bridge/host/` 运行模块，或设置 `PYTHONPATH=bridge/host`。客户端 API 示例见 [主机客户端](docs/host-client.md)。
 
+TTS 接口配置检查在 ESP-IDF Python 环境运行：`python3 bridge/tools/validation/run-tts-kconfig.py`；worker 与目标构建验证见 [TTS 说明](docs/doubao-tts.md)。
+
 ## 上游与本工程的边界
 
 - **上游**：官方账户/配对、Noise 控制通道、板卡驱动和基础 Muse UI；固定版本见 [来源清单](upstream/sources.json)。完整源码与开发/测试密钥仅保存在 `local/upstream/`。
-- **本工程扩展**：[gadget-actell](bridge/extensions/gadget-actell/README.md)、[avatar](bridge/extensions/avatar/README.md)、[headless console](docs/headless-console.md) 及可选[豆包回复语音](docs/doubao-tts.md)。源码在 `bridge/extensions/` 维护，暂存 SDK 用于构建验证。TTS 通过校验 HTTPS 流式接收并复用现有 PCM 播放；云端及真机播放需单独验收。
+- **本工程扩展**：[gadget-actell](bridge/extensions/gadget-actell/README.md)、[avatar](bridge/extensions/avatar/README.md)、[headless console](docs/headless-console.md) 及可选[豆包回复语音](docs/doubao-tts.md)。源码在 `bridge/extensions/` 维护，暂存 SDK 用于构建验证。TTS 默认使用校验证书的双向 WebSocket，可通过关闭 `CONFIG_DOUBAO_TTS_BIDIRECTIONAL` 编译切换至 HTTP 流式实现，复用现有 PCM 播放；云端及真机播放需单独验收。
 - **SDK 修改**：[patches](bridge/patches/README.md) 仅保存 Muse Gadget SDK 的接点和适配补丁。Headless 新文件在扩展目录与补丁中保持同步。
 - **Actell 应用**：独立工程维护连接、授权与手机执行实现；在 Actell 工程直接开发和验证。本工程不提供 Actell 安装补丁，历史 V1 补丁不再用于当前联调。
 - **主机原型**：`bridge/host/` 用于协议和 UI 回归；当前设备组件直接使用 Wi-Fi HTTPS，无需实现历史原型提出的 Muse VM Home Link transport。
@@ -55,7 +57,7 @@ python3 bridge/tools/dev.py mock
 
 本工程独立代码遵守根目录 Apache-2.0 LICENSE；Actell 作为独立应用保留其自身 GPL-3.0 许可。公开合成鉴权向量属于测试数据；工程内的真实 token、配对信息和私钥存放在 `local/credentials/`，用户指定的秘密配置源文件可保留在工程外。
 
-实验性[字幕字体与共享资源](docs/caption-font-integration.md)提供默认关闭的读取器、有界逐字形解码、像素分页、原字体回退和公开配置固件构建。[资源包](docs/read-only-resources.md)中的 Actell Device Sans 候选来自固定 Adobe 字体，字体单独保留 OFL-1.1 授权，生成数据留在 `local/`。字体构建入口也支持 `--mode on --with-tts --secrets` 生成受保护的组合固件，需先暂存两个扩展。资源布局保留原有数据分区与双 OTA 槽位；已完成首次资源部署和固件启动核查；最终字体选型、显示/性能验收及回滚验证仍待完成。
+实验性[字幕字体与共享资源](docs/caption-font-integration.md)提供默认关闭的读取器、有界逐字形解码、像素分页、原字体回退和公开配置固件构建。[资源包](docs/read-only-resources.md)中的 Actell Device Sans 候选来自固定 Adobe 字体，字体单独保留 OFL-1.1 授权，生成数据留在 `local/`。字体构建入口也支持 `--mode on --with-tts --secrets` 生成受保护的组合固件，需先暂存两个扩展。资源布局保留原有数据分区与双 OTA 槽位；已完成首次资源部署和固件启动核查；最终字体选型、显示/性能验收及回滚验证仍待完成。 添加 `--tts-transport http` 可构建原 HTTP 单向接口，输出隔离到 `private-fonts-tts-http/`；省略时仍默认双向。
 
 ## Git 分享前
 

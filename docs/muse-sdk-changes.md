@@ -6,7 +6,7 @@
 - **无屏适配**：复用 Muse 文字会话，调整无屏构建与启动流程，增加文字事件观察和可选开发网页。见 [无屏控制台](headless-console.md)。
 - **角色覆盖**：使用上游已有覆盖入口替换默认角色，接入可选手机读写动作；无需额外修改上游构建机制。见 [角色说明](../bridge/extensions/avatar/README.md)。
 - **字幕与共享资源适配**：通过可选薄补丁接入只读字体、真实行高和像素分页，普通布局保留角色高度并使用两行回复、缩小阅读布局保持原位，缺失或不兼容时回退原路径；资源布局保留既有数据与双 OTA，已完成首刷和启动核查，显示及回滚仍待验收。见 [字体集成](caption-font-integration.md)。
-- **回复语音接点**：在会话的回复、播放及取消流程接入可选豆包 TTS，复用现有 PCM 输出和字幕；关闭扩展或扬声器时保留字幕节奏；字体/TTS 组合固件已通过目标构建与启动核查，实际播报待验收。见 [TTS 说明](doubao-tts.md)。
-- **配置适配**：提供桥接启停、无屏、板卡 USB 配置和中日韩字幕字体的配置组合，通过不回显值的工具导入及审计本机秘密配置，并根据豆包 API key 自动启停 TTS。见 [组件配置](../bridge/extensions/gadget-actell/README.md#combining-existing-overlays) 与 [TTS 配置](doubao-tts.md)。
+- **回复语音接点**：在会话的回复、播放及取消流程接入可选豆包 TTS，复用现有 PCM 输出和字幕；关闭扩展或扬声器时保留字幕节奏；长回复、打断与并行性能需单独验收。见 [TTS 说明](doubao-tts.md)。
+- **配置适配**：提供桥接启停、无屏、板卡 USB 配置和中日韩字幕字体的配置组合，通过不回显值的工具导入及审计本机秘密配置，并根据豆包 API key 自动启停 TTS，通过构建参数显式选择双向（默认）或 HTTP 接口并核验宏，适配双向握手缓冲与内存分配，日志仅保留阶段及数值诊断。见 [组件配置](../bridge/extensions/gadget-actell/README.md#combining-existing-overlays) 与 [TTS 配置](doubao-tts.md)。
 
 补丁应用与扩展暂存方式统一见 [补丁说明](../bridge/patches/README.md)。本项目只维护 Muse SDK 侧适配，Actell 应用在其独立工程维护。
