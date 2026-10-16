@@ -4,7 +4,7 @@
 
 - `bridge/`：本项目工程链路的总目录。新增客户端、扩展、补丁、测试和开发工具优先归入其对应子目录，不在仓库根目录新增平级实现目录。
 - `bridge/host/`：本工程 Python 客户端、loopback mock、网页及其测试。运行入口为 `python3 bridge/tools/dev.py`。
-- `bridge/extensions/`：本工程维护的 gadget-actell、avatar、headless-console、muse-fonts 和 doubao-tts 扩展源码与通用配置；avatar 的 `preview/` 仅本机保留，整体忽略，不提交或上传。
+- `bridge/extensions/`：本工程维护的扩展源码与通用配置；具体能力、接入方式和本机产物边界见对应扩展文档。
 - `bridge/patches/muse-gadget-sdk/`：仅保存对固定 Muse Gadget SDK 的差异。本工程的“通过补丁修改上游”只适用于 Muse Gadget SDK。
 - `upstream/`：只保存 Muse Gadget SDK 的来源 URL、固定 commit、归档 SHA-256 与接入说明。SDK 完整源码、Git 历史、开发签名密钥和下载包均放在 `local/upstream/`。
 - `docs/`：可公开的架构、协议和使用说明；`bridge/extensions/skills/`：本工程交付的 Muse 使用说明，作为扩展一起维护。
@@ -45,7 +45,7 @@
 - 以 `upstream/sources.json` 固定 Muse Gadget SDK 基线；先核验归档哈希/commit，再准备 `local/build/` 副本。不要直接开发或覆盖干净 SDK 检出。
 - 扩展源码的权威位置是 `bridge/extensions/`，SDK 差异的权威位置是 `bridge/patches/muse-gadget-sdk/`。暂存 SDK 中的改动必须回写对应扩展/补丁，不能只留在忽略目录。
 - Headless 补丁包含新增文件的副本；修改 `bridge/extensions/headless-console/` 时同步 `bridge/patches/muse-gadget-sdk/headless.patch`，验证应用后文件逐字节一致。
-- 补丁使用上游仓库相对路径；依次应用 headless（可选）、gadget hook/component、avatar（可选）、caption font hook/component（可选）、doubao TTS hook/component（可选）。用干净固定基线验证 `git apply --check`，避免重复应用。
+- 补丁使用上游仓库相对路径，按补丁说明中的依赖关系和应用顺序接入。用干净固定基线验证 `git apply --check`，避免重复应用。
 - Actell 是独立协作应用，其实现和修改直接在 Actell 工程维护。本工程不生成、分发或重新应用 Actell 补丁；其他仓库也不套用 Muse SDK 的补丁流程。联调时核对对端实际源码、分支和未提交状态，不以历史补丁推断已提交或可运行。
 - 不复制整个 SDK 到可分享目录，不把 SDK 文件伪装成本工程原创。保留来源和许可证；本工程独立代码遵守根目录 LICENSE，外部应用保留各自许可。
 - SDK 版本、补丁路径或目录布局变化时，同步来源清单、入口脚本、测试、README、AGENTS.md 与 .gitignore。

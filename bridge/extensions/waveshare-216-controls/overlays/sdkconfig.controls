@@ -1,0 +1,3 @@
+# Display build only: append after esp32/devices/sdkconfig.muse and board defaults.
+CONFIG_MUSE_BOARD_WAVESHARE_S3_216=y
+CONFIG_LV_FONT_MONTSERRAT_24=y
