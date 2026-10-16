@@ -22,7 +22,10 @@ def main():
     parser.add_argument('--mode', choices=['on', 'off', 'headless'], required=True)
     parser.add_argument('--secrets', type=Path, help='private import; SDK-only unless --with-tts; values never displayed')
     parser.add_argument('--with-tts', action='store_true', help='build combined fonts/TTS using the normal private importer')
+    parser.add_argument('--with-controls', action='store_true', help='include the staged Waveshare 2.16 controls and native 24px overlay')
     args = parser.parse_args()
+    if args.with_controls and args.mode == 'headless':
+        parser.error('controls require a display profile')
     private = args.secrets is not None
     if private and args.mode != 'on':
         parser.error('private SDK-token build supports the independent font-on profile only')
@@ -35,8 +38,15 @@ def main():
         parser.error('Only a staged SDK under local/build may be built')
     if args.with_tts and not (sdk / 'components/doubao_tts/CMakeLists.txt').is_file():
         parser.error('Stage the TTS extension before building combined firmware')
+    if args.with_controls:
+        if not (sdk / 'components/muse/boards/waveshare_216_controls.h').is_file():
+            parser.error('Apply the controls extension before building with --with-controls')
+        subprocess.run([sys.executable, str(ROOT / 'bridge/extensions/waveshare-216-controls/tools/stage.py'),
+                        str(args.sdk.resolve()), '--check'], check=True, stdout=subprocess.DEVNULL)
     idf = Path(os.environ['IDF_PATH'])
     label = 'private-fonts-tts' if args.with_tts else 'private-on' if private else args.mode
+    if args.with_controls:
+        label += '-controls'
     build = ROOT / 'local/build/caption-firmware' / label
     build.mkdir(parents=True, exist_ok=True)
     log_dir = ROOT / 'local/logs/caption-fonts'
@@ -53,6 +63,8 @@ def main():
     else:
         defaults += [sdk / 'devices/sdkconfig.muse', sdk / 'devices/sdkconfig.muse-waveshare-s3-216']
     defaults += [ROOT / 'bridge/extensions/gadget-actell/overlays/sdkconfig.bridge', public]
+    if args.with_controls:
+        defaults.append(ROOT / 'bridge/extensions/waveshare-216-controls/overlays/sdkconfig.controls')
     # This directory is owned solely by this public-config runner. Recreate
     # its seed so prior builds cannot silently retain a stale font/table mode.
     (build / 'sdkconfig').write_text(public.read_text())
@@ -105,6 +117,14 @@ def main():
         if check.returncode:
             print('Combined target feature check failed; private details withheld.')
             return 1
+    if args.with_controls:
+        check = subprocess.run([shutil.which('xtensa-esp32s3-elf-gcc'), '-x', 'c', '-fsyntax-only',
+                                '-include', str(build / 'config/sdkconfig.h'), '-'],
+                               input='#if !CONFIG_LV_FONT_MONTSERRAT_24 || !CONFIG_MUSE_BOARD_WAVESHARE_S3_216\n#error Controls feature missing\n#endif\n',
+                               capture_output=True, text=True)
+        if check.returncode:
+            print('Controls target feature check failed; private details withheld.')
+            return 1
     if not private:
         config = (build / 'config/sdkconfig.h').read_text()
         expected = '#define CONFIG_ACTELL_CAPTION_FONT 1'
@@ -114,7 +134,7 @@ def main():
                   app_bytes=image.stat().st_size, app_sha256=None if private else hashlib.sha256(image.read_bytes()).hexdigest(),
                   capacity_bytes=4 * 1024 * 1024 if args.mode != 'headless' else 2 * 1024 * 1024,
                   private_configuration_used=private, provider_credentials_imported=args.with_tts,
-                  combined_features_verified=args.with_tts, device_partition_changed=False,
+                  combined_features_verified=args.with_tts, controls_verified=args.with_controls, device_partition_changed=False,
                   shared_resource_table=args.mode == 'on', flashed=False)
     report['free_bytes'] = report['capacity_bytes'] - report['app_bytes']
     destination = ROOT / 'local/validation/caption-fonts'

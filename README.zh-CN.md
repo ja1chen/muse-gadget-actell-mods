@@ -42,6 +42,8 @@ python3 bridge/tools/dev.py mock
 
 秘密配置由用户指定路径，推荐放在工程目录外。`--secrets` 为必填参数，不设置默认工程内路径。用 `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --init` 创建 0600 占位文件，再由用户本机编辑；仅允许工具读取，代理不得直接查看、展示或将源文件复制进工程。通过 `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --sdkconfig local/build/sdk-copy/esp32/build-tts/sdkconfig` 导入，工具不回显值。文件仅填写 `CONFIG_GADGET_SDK_TOKEN` 和可选的 `CONFIG_DOUBAO_TTS_API_KEY`；API key 非空时自动启用 TTS，资源与音色在组件中固定。字段与构建步骤见 [TTS 配置说明](docs/doubao-tts.md)。 `--sdk-token-only` 仅用于独立字体构建，会移除 provider 配置；准备 TTS 或字体/TTS 组合固件时不使用该模式。
 
+可选 [Waveshare 2.16 按键扩展](bridge/extensions/waveshare-216-controls/README.md) 将左 BOOT、中 PWR、右 KEY3 分别用于扬声器、休眠/唤醒与硬件长按关机、Talk；保留触屏设置。获授权的正式构建可在字体/TTS runner 追加 `--with-controls`，并使用扩展提供的非活动 app 槽更新工具。该扩展在字体等既有扩展之后最后应用，显示版 overlay 启用原生 24px 电源图标。`dev.py test` 中的按键回归需要 `local/upstream/archives/` 下已核验的固定 SDK 归档。基础按键行为和图标位置已获实机确认；长按时序、唤醒功耗、实际音频及完整显示验收仍待完成。
+
 ## 协议与资料
 
 - [Muse Gadget SDK 改动索引](docs/muse-sdk-changes.md)：按类别简述 SDK 适配，引用详细说明。

@@ -2,6 +2,7 @@
 
 按类别概括本项目新增的能力；SDK 侧适配见 [改动索引](muse-sdk-changes.md)。配置、协议和实现细节通过下列引用查阅。
 
+- **2.16 独立按键**：增加左键扬声器、中键休眠/唤醒与长按关机、右键 Talk，以及仅显示状态的三图标；沿用触屏 Speaker 与手机 BLE 设置入口，提供固定基线检查、幂等应用和安全 app 槽更新；已通过启动与基础按键/图标人工核查，完整真机验收待完成。见 [按键扩展](../bridge/extensions/waveshare-216-controls/README.md)。
 - **Actell 手机工具**：让 Muse 通过设备的 Wi-Fi HTTPS/HMAC 调用 Actell，复用其授权、审批、运行管理和工具执行队列。见 [组件说明](../bridge/extensions/gadget-actell/README.md)。
 - **可信 USB 配置**：提供物理按键控制的开发配置入口，用于导入 Actell 连接邀请，默认关闭。见 [初始配置说明](../bridge/extensions/gadget-actell/README.md#trusted-one-time-bootstrap)。
 - **实验图片回传**：提供受限缩略图回传，默认关闭；真实 Muse 模型图像输入仍需验证。见 [设备 V2 协议](protocol/gadget-v2.md)。
