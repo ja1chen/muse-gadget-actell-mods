@@ -4,7 +4,7 @@
 
 - **Actell 接入**：将独立 Actell 组件接入官方命令注册、调用和会话生命周期，增加可选 USB 初始配置入口；保留官方账户、配对和控制通道。见 [补丁说明](../bridge/patches/README.md) 与 [组件说明](../bridge/extensions/gadget-actell/README.md)。
 - **无屏适配**：复用 Muse 文字会话，调整无屏构建与启动流程，增加文字事件观察和可选开发网页。见 [无屏控制台](headless-console.md)。
-- **角色覆盖**：使用上游覆盖入口接入 v13，并通过薄改动分离原生网格与显示布局、增加编译回退和小头像重绘保护；保留现有构建机制及字体/TTS 接点。见 [角色说明](../bridge/extensions/avatar/README.md)。
+- **角色覆盖**：使用上游覆盖入口接入 v13，并通过薄改动分离原生网格与显示布局、增加编译回退和小头像重绘保护；保留现有构建机制及字体/TTS 接点，头部距离预筛复用原安装入口与精确缓存，不改变 UI 刷新逻辑。见 [角色说明](../bridge/extensions/avatar/README.md)。
 - **字幕与共享资源适配**：通过可选薄补丁接入只读字体、真实行高和像素分页，普通布局保留角色高度并使用两行回复、缩小阅读布局保持原位，缺失或不兼容时回退原路径；资源布局保留既有数据与双 OTA，已完成首刷和启动核查，显示及回滚仍待验收。见 [字体集成](caption-font-integration.md)。
 - **回复语音接点**：在会话的回复、播放及取消流程接入可选豆包 TTS，复用现有 PCM 输出和字幕；关闭扩展或扬声器时保留字幕节奏；字体/TTS 组合固件已通过目标构建与启动核查，实际播报待验收。见 [TTS 说明](doubao-tts.md)。
 - **配置适配**：提供桥接启停、无屏、板卡 USB 配置和中日韩字幕字体的配置组合，通过不回显值的工具导入及审计本机秘密配置，并根据豆包 API key 自动启停 TTS。见 [组件配置](../bridge/extensions/gadget-actell/README.md#combining-existing-overlays) 与 [TTS 配置](doubao-tts.md)。

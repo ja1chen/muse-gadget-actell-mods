@@ -38,7 +38,7 @@ python3 bridge/tools/dev.py mock
 - **Actell 应用**：独立工程维护连接、授权与手机执行实现；在 Actell 工程直接开发和验证。本工程不提供 Actell 安装补丁，历史 V1 补丁不再用于当前联调。
 - **主机原型**：`bridge/host/` 用于协议和 UI 回归；当前设备组件直接使用 Wi-Fi HTTPS，无需实现历史原型提出的 Muse VM Home Link transport。
 
-角色默认使用 160×160 v13，可通过编译开关回退原 64×64 版本；暂存保留 320 像素布局并兼容字幕字体/TTS。主机逐像素检查及目标构建不代表真机视觉或并发性能验收，见[角色说明](bridge/extensions/avatar/README.md)。
+角色默认使用 160×160 v13，可通过编译开关回退原 64×64 版本；头部距离预筛减少聆听渲染计算，采样像素输出保持一致，见[性能说明](docs/avatar-listening-performance.md)；暂存保留 320 像素布局并兼容字幕字体/TTS。主机逐像素检查及目标构建不代表真机视觉或并发性能验收，见[角色说明](bridge/extensions/avatar/README.md)。
 
 开始构建前，在 `local/build/` 准备固定 SDK 的独立副本，按补丁说明应用并暂存扩展。不要混入 Actell 原有 USB-C/NCM 转发固件。目标编译、真实 Muse 账户、USB 配置、手机执行和模型图像输入均需分别验证，主机测试不能替代真机验收。
 

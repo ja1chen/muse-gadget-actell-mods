@@ -78,6 +78,10 @@ with tempfile.TemporaryDirectory(prefix='actell-avatar-host-', dir=temporary_roo
             '-c', str(staged), '-o', str(temp / f'esp-{branch}.o')], check=True)
     subprocess.run([sys.executable, str(AVATAR / 'tools/check-v13.py'), '--include', str(component), '--output', str(temp)], check=True)
     report['pixels'] = json.loads((temp / 'pixel-report.json').read_text())
+    performance = ROOT / 'local/validation/avatar-listening'
+    subprocess.run([sys.executable, str(AVATAR / 'tools/check-listening-performance.py'),
+                    '--include', str(component), '--output', str(performance)], check=True)
+    report['listening_performance'] = json.loads((performance / 'performance.json').read_text())
     # Refuse rollback over subsequent UI edits; restore exactly when unchanged.
     ui = component / 'muse_ui.c'
     installed = ui.read_bytes()

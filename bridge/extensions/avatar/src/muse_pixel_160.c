@@ -61,6 +61,27 @@ static void phone_round(float x,float y,float w,float h,float r,int c){
  }
 }
 static float smooth_union(float a,float b,float k){float h=fmaxf(k-fabsf(a-b),0)/k;return fminf(a,b)-h*h*k*.25f;}
+#ifndef MUSE_AVATAR_EXACT_DISTANCE_PREFILTER
+#define MUSE_AVATAR_EXACT_DISTANCE_PREFILTER 1
+#endif
+#if MUSE_AVATAR_EXACT_DISTANCE_PREFILTER
+/* Conservative squared-distance certificates. Only the ambiguous boundary band
+ * uses the original hypotf/smooth-union expression below. Union(a,b,k) is in
+ * [min(a,b)-k/4,min(a,b)]; two ears can lower distance by at most 1.75.
+ * The extra .01 margin protects threshold rounding; no pose quantization,
+ * lookup interpolation, new persistent cache, or changed animation timing.
+ */
+static bool head_below(float px,float py,float qx,float qy,float threshold){
+ if(py>0){
+  float ax=px/(19.5f*2.5f),ay=py/(17.32f*2.5f);
+  float radius=1+threshold/(17.32f*2.5f);
+  return ax*ax+ay*ay < radius*radius;
+ }
+ float ax=fmaxf(qx,0),ay=fmaxf(qy,0);
+ float radius=threshold-fminf(fmaxf(qx,qy),0)+16*2.5f;
+ return radius>0 && ax*ax+ay*ay < radius*radius;
+}
+#endif
 /* Circular ear lobes and softly blended roots; true 160-grid geometry. */
 static void head_and_ears(float cx,float hy){
  if(cache_valid && cx==cache_cx && hy==cache_hy && nod_offset==cache_nod && pitch==cache_pitch){
@@ -72,6 +93,17 @@ static void head_and_ears(float cx,float hy){
  float lower=fmaxf(0,py/(17.5f*2.5f));
  px/=1-.14f*lower;
  float qx=fabsf(px)-(19.5f-16)*2.5f,qy=fabsf(py)-(17.5f-16)*2.5f;
+#if MUSE_AVATAR_EXACT_DISTANCE_PREFILTER
+ /* A certified interior pixel cannot become outline after either union.
+  * A certified exterior pixel remains outside even at maximum blending. */
+ float elx=px+14*2.5f,erx=px-14*2.5f,epy=py+15*2.5f;
+ float el2=elx*elx+epy*epy,er2=erx*erx+epy*epy;
+ const float inner=5.5f*2.5f-1.81f,outer=5.5f*2.5f+1.76f;
+ if(head_below(px,py,qx,qy,-1.81f) || el2<inner*inner || er2<inner*inner){
+  native_pixel(x,y,LIGHT);continue;
+ }
+ if(!head_below(px,py,qx,qy,1.76f) && el2>outer*outer && er2>outer*outer)continue;
+#endif
  float d=hypotf(fmaxf(qx,0),fmaxf(qy,0))+fminf(fmaxf(qx,qy),0)-16*2.5f;
  if(py>0)d=(hypotf(px/(19.5f*2.5f),py/(17.32f*2.5f))-1)*(17.32f*2.5f);
  for(int side=-1;side<=1;side+=2){float e=hypotf(px-side*14*2.5f,py+15*2.5f)-5.5f*2.5f;d=smooth_union(d,e,3.5f);}

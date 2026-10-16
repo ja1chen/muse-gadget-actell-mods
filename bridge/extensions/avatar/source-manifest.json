@@ -5,8 +5,13 @@
   "sha256": {
     "src/muse_pixel.c": "d3731211b57e2e97e4606801533ba89555baa9459d5f7e5186917847172c6ec1",
     "src/actell_avatar.c": "466d668477a0073ff38befc67a4f71156e539c4cb3602ddcd22bd1474d820ac6",
-    "src/muse_pixel_160.c": "a918272857820504760046794cc4e19ca46478c87e278b99c6b52e869fef5086",
+    "src/muse_pixel_160.c": "c5fd4ea4a837e258d96752bad94ce58a1c0a593f7e51ccde7a157819f0133e00",
     "src/muse_pixel_dispatch.c": "eb86dd7e9a01d0628450f4bb72b98c8a98173f3f3a3b46d633135af05f57ce61",
     "tests/reference_v13.c": "766eaebf4864d4466f53b2da3e9378eec00cd4aa8b460fc876f960ee49889dfd"
+  },
+  "performance_update": {
+    "source": "Actell-Muse-v13-Listening-Performance-Fix",
+    "baseline_sha256": "a918272857820504760046794cc4e19ca46478c87e278b99c6b52e869fef5086",
+    "default_prefilter": true
   }
 }

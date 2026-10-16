@@ -98,8 +98,10 @@ no runtime allocation fallback for these arrays. Enable external BSS only on a
 PSRAM board with working PSRAM initialization. The SDK dirty RGB565 heap cache
 grows from 8,192 to 51,200 bytes and retains its full-redraw allocation fallback.
 Including dirty scratch, the nominal increase is about 92 KiB, before target
-alignment/control state. Geometry changes still run the original float-distance
-algorithm. No device FPS, peak heap or power claim follows from host tests.
+alignment/control state. Geometry changes use conservative squared-distance classification for head
+interiors/exteriors; the boundary band retains the original float-distance
+algorithm. Exact cache keys, animation timing and dirty rectangles are unchanged.
+No additional persistent buffer or heap allocation is introduced. No device FPS, peak heap or power claim follows from host tests.
 
 With the existing ESP-IDF 6.0.1 environment activated and all extensions staged,
 build both Waveshare profiles using public synthetic configuration:
@@ -137,7 +139,10 @@ branches with ASan/UBSan: each renders 1,680 frames at eight sizes and exercises
 strips, TTL, toggle, clock wrap, invalid values and voice priority. It compares
 2,400 v13 cases against the original oracle, checks 199 dirty-frame pairs, ESP
 interface compilation, patch equivalence, idempotence and protected rollback.
-LeakSanitizer is disabled; this is not a passed leak check. Reports are written
+It also compares 12,000 complete 160×160 frames with the distance prefilter
+off/on and records separate operation counts and uninstrumented host timings.
+See [listening performance](../../../docs/avatar-listening-performance.md) for
+limits, diagnosis and target A/B steps. LeakSanitizer is disabled; this is not a passed leak check. Reports are written
 to `local/validation/current/`.
 
 Optional previews require Pillow and render actual C output:
@@ -169,8 +174,9 @@ to the synthetic build profile, not measured runtime heap.
 Target ELF/map evidence is recorded locally under `local/validation/avatar-v13/`.
 The private v13 image passed app-only flash/readback and a 45-second boot
 observation with no panic or watchdog, with caption resources and the Muse
-session connected. Device use has shown visible stutter; its cause and actual
-frame rate remain unmeasured. Physical AMOLED appearance, settings/caption
+session connected. After the head-distance prefilter update, the user reported no obvious
+listening stutter. Passive interaction capture recorded successful TTS output
+and no further reset, panic or watchdog. Actual frame timing remains unmeasured. Physical AMOLED appearance, settings/caption
 layouts, simultaneous voice/Actell performance, packet/heap behavior and real
-read/write animation events still require acceptance. Live TTS playback has
-not been tested.
+read/write animation events still require acceptance. Successful TTS output is recorded for this interaction; long replies and
+concurrent workload performance still need separate acceptance.
