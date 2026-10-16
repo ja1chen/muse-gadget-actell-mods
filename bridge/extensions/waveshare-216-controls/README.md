@@ -10,14 +10,14 @@
 
 扩展的权威源码是 `include/waveshare_216_controls.h`，SDK 差异集中在 [controls 补丁](../../patches/muse-gadget-sdk/waveshare-216-controls.patch)。[manifest.json](manifest.json) 记录固定归档与目标头文件；不保存 SDK 完整副本、凭据或固件。
 
-准备已核验的固定 SDK 副本于 `local/build/sdk-copy`。沿用[既有顺序](../../patches/README.md)应用所需扩展，**本扩展最后应用**，尤其应在 caption font 之后：字体暂存器要求未修改的上游 UI。不重新暂存或覆盖现有集成；若已有不兼容源码，检查器停止并报告。
+准备已核验的固定 SDK 副本于 `local/build/sdk-copy`。沿用[既有顺序](../../patches/README.md)应用所需扩展，**本扩展最后应用**，尤其应在 Avatar 和 caption font 之后：字体暂存器只接受固定上游 UI 或经过核验的 Avatar UI。不重新暂存或覆盖现有集成；若已有不兼容源码，检查器停止并报告。
 
 ```sh
 python3 bridge/extensions/waveshare-216-controls/tools/stage.py local/build/sdk-copy --check
 python3 bridge/extensions/waveshare-216-controls/tools/stage.py local/build/sdk-copy
 ```
 
-脚本只允许修改本仓库 `local/build/` 中的副本。先核验归档 SHA-256，再逐字节核对全部受影响源码；接受固定基线及已应用本工程 caption font 的明确变体。其他扩展接点保持原样。重复运行显示 Already applied，源码或扩展头文件发生未知变化时拒绝继续。`--check` 不修改目标源码。应用记录保存于 `local/validation/waveshare-216-controls/`，仅包含基线和源码哈希，不读取配置或凭据。
+脚本只允许修改本仓库 `local/build/` 中的副本。先核验归档 SHA-256，再逐字节核对全部受影响源码；接受固定基线，以及按权威安装器重建的 Avatar v13、caption font 及两者组合的明确变体；不以本地安装日志替代源码比对。其他扩展接点保持原样。重复运行显示 Already applied，源码或扩展头文件发生未知变化时拒绝继续。`--check` 不修改目标源码。应用记录保存于 `local/validation/waveshare-216-controls/`，仅包含基线和源码哈希，不读取配置或凭据。
 
 显示版配置顺序：`sdkconfig.defaults;devices/sdkconfig.muse;devices/sdkconfig.muse-waveshare-s3-216` 后追加本扩展 `overlays/sdkconfig.controls` 和所需已有扩展 overlay。使用独立显示版 build，禁止套用 headless 配置。新 overlay 启用原生 Montserrat 24 字体；遗漏时本板编译会明确报错。启用 TTS 的构建须保留普通秘密配置导入方式，不能使用 SDK-token-only 模式。
 
@@ -43,7 +43,7 @@ python3 bridge/extensions/waveshare-216-controls/tools/stage.py local/build/sdk-
 python3 bridge/tools/dev.py test
 ```
 
-主机回归要求 `local/upstream/archives/` 中已有 manifest 指定的固定归档，不自动下载或跳过。覆盖固定源码补丁检查、重复应用、冲突拒绝、可逆性，以及 headless、Actell、caption font、TTS 接点叠加后回滚仍逐字节一致；C ASan/UBSan 编译真实电源输入处理器与状态机，覆盖短按、唤醒吞键、LONG/RELEASE 同批、启动消隐、错误/重放、交错 Talk/Speaker 和 83,521 组四步事件/错误序列；生产 PMU 源码以 fake I2C 验证读写错误、门槛回读、10 秒/开机门槛保留和旧接口兼容。测试只使用合成输入。
+主机回归要求 `local/upstream/archives/` 中已有 manifest 指定的固定归档，不自动下载或跳过。覆盖固定源码补丁检查、重复应用、冲突拒绝、可逆性，以及 headless、Actell、Avatar、caption font、TTS 接点叠加后回滚仍逐字节一致，并拒绝组合 UI 的未知改动；C ASan/UBSan 编译真实电源输入处理器与状态机，覆盖短按、唤醒吞键、LONG/RELEASE 同批、启动消隐、错误/重放、交错 Talk/Speaker 和 83,521 组四步事件/错误序列；生产 PMU 源码以 fake I2C 验证读写错误、门槛回读、10 秒/开机门槛保留和旧接口兼容。测试只使用合成输入。
 
 验收分开记录源码检查、主机测试、目标编译和实物。目标编译与本机结果见 `local/validation/waveshare-216-controls/`；主机测试不代表硬件通过。尚需实物验证：1.5 秒实际门槛、开机持续按住/快速松手、短按捕获率、熄屏及 Wi-Fi nap 在电池/USB 下的最坏唤醒延迟和功耗、独立受控的约 10 秒硬关机与再次开机、真实 TTS 静音/恢复、配对确认和 BLE 菜单交互，以及头像、中文长回复、设置/休眠/关机页、圆环边缘和低亮度图标可读性。这些未完成项保持待验收；不清 NVS、不重配对。
 

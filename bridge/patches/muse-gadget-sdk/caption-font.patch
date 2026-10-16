@@ -1,8 +1,7 @@
 # Base: Muse Gadget SDK 812c46f9fe42b69d916613a9dc702cbac5ff7b54
 --- a/esp32/components/muse/muse_ui.c
 +++ b/esp32/components/muse/muse_ui.c
-@@ -43,6 +43,10 @@
- #include "muse_settings_ui.h"
+@@ -44,4 +44,8 @@
  #include "muse_state.h"
  #include "muse_text.h"
 +
@@ -11,9 +10,7 @@
 +#endif
  #include "muse_wifi.h"
  #if CONFIG_MUSE_WATCHER_CAMERA
- #include "boards/watcher_camera.h"
-@@ -471,6 +475,9 @@
-  * falls back to Unifont's 16x16 CJK, the same cell, for what unscii lacks. */
+@@ -472,4 +476,7 @@
  static const lv_font_t *caption_font(void)
  {
 +#if CONFIG_ACTELL_CAPTION_FONT
@@ -21,9 +18,7 @@
 +#endif
  #if CONFIG_MUSE_CJK_FONT
      static lv_font_t font;
-     if (!font.get_glyph_dsc) {
-@@ -711,13 +718,17 @@
-     l->px = MUSE_PX_W * cell;
+@@ -712,11 +719,15 @@
      l->y = s_big_y;
      l->align = LV_TEXT_ALIGN_CENTER;
 -    int h = 3 * pitch - CAPTION_LINE_SPACE;
@@ -42,9 +37,7 @@
 +            set_reply_box(l, c, heard_lines, top, cw, pitch);
              break;
          }
-     }
-@@ -750,9 +761,19 @@
-              s_answers[ANSWER_HEARD].lines, l->cols, l->lines);
+@@ -751,7 +762,17 @@
  
      s_reply_lbl = make_label(face, font, COLOR_CAPTION);
 +#if CONFIG_ACTELL_CAPTION_FONT
@@ -62,9 +55,7 @@
 +#endif
      lv_obj_remove_flag(s_reply_lbl, LV_OBJ_FLAG_SCROLLABLE);
      lv_obj_add_flag(s_reply_lbl, LV_OBJ_FLAG_HIDDEN);
- 
-@@ -857,11 +878,20 @@
-      * whose blank bottom rows can tuck in behind the meter.
+@@ -858,9 +879,18 @@
       */
      int ring_in = (s_w < s_h ? s_w : s_h) / 2 - 10;   /* the ring's inner edge */
 -    int cap_h = 2 * lv_font_get_line_height(&lv_font_unscii_16) + CAPTION_LINE_SPACE;
@@ -84,9 +75,7 @@
 +#endif
      int cap_top = cap_bottom - cap_h;
      int meter_y = cap_top - 6 - METER_SEG_PX / 2;
-     int art_bottom = meter_y - METER_SEG_PX / 2 - 4;
-@@ -1480,6 +1510,9 @@
-         if (layout != s_page_for) {
+@@ -1481,4 +1511,7 @@
              muse_state_set_page(s_answers[layout].cols, s_answers[layout].lines);
              s_page_for = layout;
 +#if CONFIG_ACTELL_CAPTION_FONT
@@ -94,11 +83,9 @@
 +#endif
          }
          if (mode == MUSE_MODE_THINKING || mode == MUSE_MODE_SPEAKING) {
-             answer = layout;
 --- a/esp32/components/muse/muse_state.c
 +++ b/esp32/components/muse/muse_state.c
-@@ -27,6 +27,10 @@
- 
+@@ -28,4 +28,8 @@
  #include "muse_text.h"
  
 +#if CONFIG_ACTELL_CAPTION_FONT
@@ -107,9 +94,7 @@
 +
  #define HAPPY_SECS 1.6f
  
- #define AWAKE_BIT BIT0   /* while !s_asleep */
-@@ -116,6 +120,10 @@
-     va_start(ap, fmt);
+@@ -117,4 +121,8 @@
      vsnprintf(buf, sizeof(buf), fmt, ap);
      va_end(ap);
 +#if CONFIG_ACTELL_CAPTION_FONT
@@ -118,11 +103,9 @@
 +#endif
      muse_text_to_ascii(buf, sizeof(buf));   /* replies have curly quotes and dashes */
  
-     portENTER_CRITICAL(&s_lock);
 --- a/esp32/components/muse/muse_chat_text.c
 +++ b/esp32/components/muse/muse_chat_text.c
-@@ -25,6 +25,10 @@
- 
+@@ -26,4 +26,8 @@
  #include "muse_state.h"
  #include "muse_text.h"
 +
@@ -131,9 +114,7 @@
 +#endif
  
  #define CAPTION_CHARS 32   /* what fits across the round screen */
- #define CONSOLE_LINE 400   /* one "@chat" line */
-@@ -152,6 +156,9 @@
-  */
+@@ -153,4 +157,7 @@
  bool muse_hatch_caption_at(const char *text, size_t at, char *out, size_t cap)
  {
 +#if CONFIG_ACTELL_CAPTION_FONT
@@ -141,14 +122,11 @@
 +#endif
      int cols, lines;
      muse_state_page(muse_text_has_cjk(text), &cols, &lines);
-     const char *p = text, *start;
 --- a/esp32/components/muse/CMakeLists.txt
 +++ b/esp32/components/muse/CMakeLists.txt
-@@ -117,6 +117,7 @@
-     esp_lcd esp_adc esp_driver_i2s esp_driver_ledc esp_driver_spi esp_driver_uart esp_wifi
+@@ -118,4 +118,5 @@
      esp_driver_pcnt)
  list(APPEND muse_priv_requires camera)
 +list(APPEND muse_priv_requires actell_fonts)
  
  idf_component_register(
-     SRCS ${srcs}

@@ -74,6 +74,25 @@ class ControlsTests(unittest.TestCase):
         after = {p.relative_to(self.sdk): p.read_bytes() for p in self.sdk.rglob('*') if p.is_file()}
         self.assertEqual(before, after)
 
+    def test_avatar_caption_tts_combination_and_unknown_ui_rejection(self):
+        for name in ('headless', 'actell-hook'):
+            subprocess.run(['git', 'apply', str(ROOT / ('bridge/patches/muse-gadget-sdk/' + name + '.patch'))],
+                           cwd=self.sdk, check=True)
+        subprocess.run([sys.executable, str(ROOT / 'bridge/extensions/avatar/tools/stage.py'),
+                        '--sdk-root', str(self.sdk)], check=True, capture_output=True)
+        for name in ('caption-font', 'doubao-tts'):
+            subprocess.run(['git', 'apply', str(ROOT / ('bridge/patches/muse-gadget-sdk/' + name + '.patch'))],
+                           cwd=self.sdk, check=True)
+        before = {p.relative_to(self.sdk): p.read_bytes() for p in self.sdk.rglob('*') if p.is_file()}
+        self.stage('--check'); self.stage(); self.stage('--check'); self.stage('--reverse')
+        after = {p.relative_to(self.sdk): p.read_bytes() for p in self.sdk.rglob('*') if p.is_file()}
+        self.assertEqual(before, after)
+        ui = self.sdk / 'esp32/components/muse/muse_ui.c'
+        ui.write_bytes(ui.read_bytes() + b'\n/* unknown local UI change */\n')
+        modified = ui.read_bytes()
+        self.stage('--check', success=False)
+        self.assertEqual(ui.read_bytes(), modified)
+
     def test_reducer_with_real_input_handlers(self):
         self.stage()
         muse = self.sdk / 'esp32/components/muse'
