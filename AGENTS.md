@@ -44,6 +44,7 @@
 
 - 以 `upstream/sources.json` 固定 Muse Gadget SDK 基线；先核验归档哈希/commit，再准备 `local/build/` 副本。不要直接开发或覆盖干净 SDK 检出。
 - 扩展源码的权威位置是 `bridge/extensions/`，SDK 差异的权威位置是 `bridge/patches/muse-gadget-sdk/`。暂存 SDK 中的改动必须回写对应扩展/补丁，不能只留在忽略目录。
+- Avatar v13 的 SDK 差异由 `bridge/extensions/avatar/tools/stage.py` 安装，并与 `bridge/patches/muse-gadget-sdk/avatar.patch` 保持逐字节等效；不要在暂存后重复应用该补丁。保留暂存日志以供受保护回滚，后续字体/UI 改动存在时重建 SDK 副本，不强制覆盖回滚。
 - Headless 补丁包含新增文件的副本；修改 `bridge/extensions/headless-console/` 时同步 `bridge/patches/muse-gadget-sdk/headless.patch`，验证应用后文件逐字节一致。
 - 补丁使用上游仓库相对路径；依次应用 headless（可选）、gadget hook/component、avatar（可选）、caption font hook/component（可选）、doubao TTS hook/component（可选）。用干净固定基线验证 `git apply --check`，避免重复应用。
 - Actell 是独立协作应用，其实现和修改直接在 Actell 工程维护。本工程不生成、分发或重新应用 Actell 补丁；其他仓库也不套用 Muse SDK 的补丁流程。联调时核对对端实际源码、分支和未提交状态，不以历史补丁推断已提交或可运行。

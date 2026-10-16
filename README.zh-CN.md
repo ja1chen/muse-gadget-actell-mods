@@ -38,6 +38,8 @@ python3 bridge/tools/dev.py mock
 - **Actell 应用**：独立工程维护连接、授权与手机执行实现；在 Actell 工程直接开发和验证。本工程不提供 Actell 安装补丁，历史 V1 补丁不再用于当前联调。
 - **主机原型**：`bridge/host/` 用于协议和 UI 回归；当前设备组件直接使用 Wi-Fi HTTPS，无需实现历史原型提出的 Muse VM Home Link transport。
 
+角色默认使用 160×160 v13，可通过编译开关回退原 64×64 版本；暂存保留 320 像素布局并兼容字幕字体/TTS。主机逐像素检查及目标构建不代表真机视觉或并发性能验收，见[角色说明](bridge/extensions/avatar/README.md)。
+
 开始构建前，在 `local/build/` 准备固定 SDK 的独立副本，按补丁说明应用并暂存扩展。不要混入 Actell 原有 USB-C/NCM 转发固件。目标编译、真实 Muse 账户、USB 配置、手机执行和模型图像输入均需分别验证，主机测试不能替代真机验收。
 
 秘密配置由用户指定路径，推荐放在工程目录外。`--secrets` 为必填参数，不设置默认工程内路径。用 `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --init` 创建 0600 占位文件，再由用户本机编辑；仅允许工具读取，代理不得直接查看、展示或将源文件复制进工程。通过 `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --sdkconfig local/build/sdk-copy/esp32/build-tts/sdkconfig` 导入，工具不回显值。文件仅填写 `CONFIG_GADGET_SDK_TOKEN` 和可选的 `CONFIG_DOUBAO_TTS_API_KEY`；API key 非空时自动启用 TTS，资源与音色在组件中固定。字段与构建步骤见 [TTS 配置说明](docs/doubao-tts.md)。 `--sdk-token-only` 仅用于独立字体构建，会移除 provider 配置；准备 TTS 或字体/TTS 组合固件时不使用该模式。

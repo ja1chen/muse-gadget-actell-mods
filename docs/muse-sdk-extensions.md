@@ -5,7 +5,7 @@
 - **Actell 手机工具**：让 Muse 通过设备的 Wi-Fi HTTPS/HMAC 调用 Actell，复用其授权、审批、运行管理和工具执行队列。见 [组件说明](../bridge/extensions/gadget-actell/README.md)。
 - **可信 USB 配置**：提供物理按键控制的开发配置入口，用于导入 Actell 连接邀请，默认关闭。见 [初始配置说明](../bridge/extensions/gadget-actell/README.md#trusted-one-time-bootstrap)。
 - **实验图片回传**：提供受限缩略图回传，默认关闭；真实 Muse 模型图像输入仍需验证。见 [设备 V2 协议](protocol/gadget-v2.md)。
-- **Pebble 角色与动作**：提供原创角色和基础状态动画，可选显示手机读写活动；动作反馈独立于工具执行。见 [角色说明](../bridge/extensions/avatar/README.md) 与 [可选活动反馈](optional-avatar-events.md)。
+- **Pebble 角色与动作**：提供默认启用的 v13 高清角色、九种状态/动作与原 64 像素编译回退，缓存保持逐像素一致；可选手机活动独立于工具执行，已完成刷写与启动核查，真机卡顿待排查，视觉与并发性能待验收。见 [角色说明](../bridge/extensions/avatar/README.md) 与 [可选活动反馈](optional-avatar-events.md)。
 - **无屏文字交互**：提供 Muse 文字提交、取消、状态及回复事件浏览；可选网页仅用于隔离可信开发网络。见 [无屏控制台](headless-console.md)。
 - **字体与通用资源**：提供统一中西文字族的可复现生成、覆盖核查、预览与通用资源包，以及默认关闭的只读映射、按需解码和像素分页，普通两行回复与独立缩小阅读布局；已完成资源部署和启动核查，真机显示及运行性能待验收。见 [字体集成](caption-font-integration.md) 与 [共享资源包](read-only-resources.md)。
 - **豆包回复播报**：增加 HTTPS 流式 TTS、PCM 缓冲背压、长回复分段及取消隔离，固定合成资源与音色，按 API key 是否配置自动启停；秘密配置通过工具导入和审计，组合构建与启动核查已通过，云端调用和真机播放需单独验收。见 [TTS 说明](doubao-tts.md)。

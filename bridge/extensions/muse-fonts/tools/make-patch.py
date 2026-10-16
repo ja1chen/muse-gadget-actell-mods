@@ -54,5 +54,5 @@ with tarfile.open(archive) as tar:
         for old, new in replacements:
             assert after.count(old) == 1, (name, old)
             after = after.replace(old, new, 1)
-        patch += ''.join(difflib.unified_diff(before.splitlines(True), after.splitlines(True), 'a/' + path, 'b/' + path))
+        patch += ''.join(difflib.unified_diff(before.splitlines(True), after.splitlines(True), 'a/' + path, 'b/' + path, n=2))
 (ROOT / 'bridge/patches/muse-gadget-sdk/caption-font.patch').write_text(patch)

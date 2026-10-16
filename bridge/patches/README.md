@@ -7,11 +7,12 @@
 | `muse-gadget-sdk/headless.patch` | 无屏构建入口、文字事件和开发 HTTP 控制台 | 新增文件同时保留于 `bridge/extensions/headless-console/`，需同步 |
 | `muse-gadget-sdk/actell-hook.patch` | 官方命令注册/调用、会话、USB setup 和组件依赖接点 | 本补丁；独立组件位于 `bridge/extensions/gadget-actell/` |
 | `muse-gadget-sdk/doubao-tts.patch` | 可选豆包回复语音、PCM 输出和取消接点 | 本补丁；独立组件位于 `bridge/extensions/doubao-tts/` |
+| `muse-gadget-sdk/avatar.patch` | v13 网格/布局分离、重绘保护与编译回退 | `bridge/extensions/avatar/tools/stage.py` 安装；此补丁仅供审查，勿重复应用 |
 | `muse-gadget-sdk/caption-font.patch` | 可选共享字体、实际行高与像素分页接点 | 本补丁；独立实现位于 `bridge/extensions/muse-fonts/` |
 
 `actell-hook.patch` 修改的是 Muse SDK 的注册与调用接点，名称中的 Actell 表示集成对象；它不是针对 Actell 工程的补丁。
 
-Muse 工作副本放在 `local/build/`。若使用 headless，先检查并应用 `headless.patch`，再运行 `bridge/extensions/gadget-actell/tools/stage.py`，按需暂存 avatar，按需运行 `bridge/extensions/muse-fonts/tools/stage.py` 接入共享资源，再按需运行 `bridge/extensions/doubao-tts/tools/stage.py` 接入显示板 TTS。Avatar 使用官方 override 入口，不需要修改上游 CMake。无屏文字控制台不启用 TTS。
+Muse 工作副本放在 `local/build/`。若使用 headless，先检查并应用 `headless.patch`，再运行 `bridge/extensions/gadget-actell/tools/stage.py`，按需暂存 avatar，按需运行 `bridge/extensions/muse-fonts/tools/stage.py` 接入共享资源，再按需运行 `bridge/extensions/doubao-tts/tools/stage.py` 接入显示板 TTS。Avatar 使用官方 override 入口，不修改上游 CMake；暂存脚本同时安装对应薄 UI/header/Kconfig 改动，不再单独应用 `avatar.patch`。字体脚本接受固定 UI 或经 avatar 日志核验的 UI；字幕补丁的上下文同时兼容两者。无屏文字控制台不启用 TTS。
 
 ```sh
 git -C local/build/sdk-copy apply --check "$PWD/bridge/patches/muse-gadget-sdk/headless.patch"

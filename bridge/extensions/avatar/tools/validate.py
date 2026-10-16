@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile original C against pinned SDK headers, sanitize it, render preview artifacts."""
+"""Compile selected C renderer against pinned SDK headers and render preview artifacts."""
 from pathlib import Path
 import argparse, ctypes as C, json, math, os, subprocess, tarfile, tempfile, time
 from PIL import Image, ImageDraw, ImageFont
@@ -9,18 +9,24 @@ class Pose(C.Structure):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--sdk-archive',type=Path,required=True)
+    parser.add_argument('--legacy',action='store_true',help='preview original 64 px renderer instead of v13')
     parser.add_argument('--output',type=Path,default=ROOT.parents[2]/'local/validation/avatar-preview')
     args=parser.parse_args(); args.output.mkdir(parents=True,exist_ok=True)
     temporary_root=ROOT.parents[2]/'local/build/tmp'
     temporary_root.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='avatar-host-',dir=temporary_root) as temp:
         tmp=Path(temp)
+        import hashlib, sys
+        assert hashlib.sha256(args.sdk_archive.read_bytes()).hexdigest() == '0a7548404b4aa25ad0cc3ad0f9fee1ad3a3245a03a14b02293da3a83bde69359'
+        component=tmp/'sdk/esp32/components/muse';component.mkdir(parents=True)
         with tarfile.open(args.sdk_archive) as ar:
-            for name in ['muse_pixel.h','muse_state.h']:
+            for name in ['muse_pixel.h','muse_state.h','muse_ui.c','Kconfig']:
                 member=next(m for m in ar.getmembers() if m.name.endswith('/components/muse/'+name))
-                (tmp/name).write_bytes(ar.extractfile(member).read())
-        sources=[ROOT/'src/muse_pixel.c',ROOT/'src/actell_avatar.c',ROOT/'tests/host_test.c']
-        common=[os.environ.get('CC','cc'),'-std=c11','-O2','-Wall','-Wextra','-Werror','-DACTELL_AVATAR_TEST','-I'+str(ROOT/'include'),'-I'+str(tmp)]+list(map(str,sources))+['-lm']
+                (component/name).write_bytes(ar.extractfile(member).read())
+        subprocess.run([sys.executable,str(ROOT/'tools/stage.py'),'--sdk-root',str(tmp/'sdk')],check=True)
+        native=64 if args.legacy else 160
+        sources=[ROOT/'src/muse_pixel_dispatch.c',ROOT/'tests/host_test.c']
+        common=[os.environ.get('CC','cc'),'-std=c11','-O2','-Wall','-Wextra','-Werror','-DACTELL_AVATAR_TEST',f'-DCONFIG_MUSE_AVATAR_V2={0 if args.legacy else 1}','-I'+str(ROOT/'include'),'-I'+str(component)]+list(map(str,sources))+['-lm']
         subprocess.run(common+['-g','-fsanitize=address,undefined','-fno-omit-frame-pointer','-o',str(tmp/'test')],check=True)
         tested=subprocess.run([str(tmp/'test')],capture_output=True,text=True,env={**os.environ,'ASAN_OPTIONS':'detect_leaks=0'})
         if tested.returncode:
@@ -36,10 +42,11 @@ def main():
         lib.preview_clock.argtypes=[C.c_uint64]
         names=['boot','idle','listening','thinking','speaking','error','off','phone_read','phone_write']
         labels=['启动','待机','聆听','思考','说话','错误','关闭','看手机','操作手机']
-        fontpath=Path('/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc')
+        fontpath=next((f for f in [Path('/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'),Path('/System/Library/Fonts/STHeiti Light.ttc')] if f.exists()),Path('missing-font'))
         cn=ImageFont.truetype(str(fontpath),24) if fontpath.exists() else ImageFont.load_default()
-        en=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',13)
-        panels=[]; unique={};buf=(C.c_uint16*(64*64))();lib.muse_pixel_set_size(64)
+        enpath=Path('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf')
+        en=ImageFont.truetype(str(enpath),13) if enpath.exists() else ImageFont.load_default()
+        panels=[]; unique={};buf=(C.c_uint16*(320*320))();lib.muse_pixel_set_size(320)
         start=time.perf_counter()
         for i,name in enumerate(names):
             frames=[]
@@ -48,9 +55,9 @@ def main():
                 lib.preview_clock(int(sec*1000));lib.actell_avatar_set_enabled(True)
                 lib.actell_avatar_set_activity(i-6 if i>=7 else 0,1500)
                 pose=Pose(i if i<7 else 1,sec,sec,.5+.45*math.sin(sec*8),0)
-                lib.muse_pixel_render(C.byref(pose));lib.muse_pixel_scale(buf,64,0,63,0,63)
+                lib.muse_pixel_render(C.byref(pose));lib.muse_pixel_scale(buf,320,0,319,0,319)
                 rgb=bytes(channel for v in buf for channel in (((v>>11)&31)*255//31,((v>>5)&63)*255//63,(v&31)*255//31))
-                frame=Image.frombytes('RGB',(64,64),rgb).resize((320,320),Image.Resampling.NEAREST)
+                frame=Image.frombytes('RGB',(320,320),rgb)
                 frames.append(frame)
             if i>=7:
                 strip=Image.new('RGB',(1272,246),'#111723')
@@ -79,7 +86,7 @@ def main():
                 for n in range(gif.n_frames):
                     gif.seek(n);frame=Image.new('RGB',(340,390),'#111723');frame.paste(gif.convert('RGB'),(10,62));draw=ImageDraw.Draw(frame);draw.text((14,4),labels[i],font=cn,fill='#e9e6dc');draw.text((15,37),name,font=en,fill='#99a5b6');demo.append(frame)
         demo[0].save(args.output/'all_states.gif',save_all=True,append_images=demo[1:],duration=40,loop=0,disposal=2)
-        report={'sdk_commit':'812c46f9fe42b69d916613a9dc702cbac5ff7b54','host_sanitizers':['address','undefined'],'leak_sanitizer':'disabled: container ptrace; renderer/controller contain no heap allocation','host_test':tested.stdout.strip(),'preview_source':'Actual muse_pixel_render + muse_pixel_scale C output, no illustrations','unique_frames':unique,'preview_seconds':round(time.perf_counter()-start,3),'unverified':['ESP-IDF target build','ESP32-S3 timing and RAM','physical AMOLED output','end-to-end Actell-to-device event transport']}
+        report={'native_grid':native,'sdk_commit':'812c46f9fe42b69d916613a9dc702cbac5ff7b54','host_sanitizers':['address','undefined'],'leak_sanitizer':'disabled: container ptrace; renderer/controller contain no heap allocation','host_test':tested.stdout.strip(),'preview_source':'Actual muse_pixel_render + muse_pixel_scale C output, no illustrations','unique_frames':unique,'preview_seconds':round(time.perf_counter()-start,3),'unverified':['ESP32-S3 runtime timing and peak RAM','physical AMOLED output','end-to-end Actell-to-device event transport']}
         assert all(count>1 for count in unique.values()),unique
         (args.output/'validation.json').write_text(json.dumps(report,indent=2)+'\n')
         print(json.dumps(report,indent=2))
