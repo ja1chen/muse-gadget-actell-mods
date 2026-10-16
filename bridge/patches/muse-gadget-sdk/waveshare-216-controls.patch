@@ -325,7 +325,7 @@
          }
      }
      layer->_clip_area = clip;
-@@ -1047,8 +1079,19 @@
+@@ -1047,11 +1079,37 @@
  static lv_obj_t *make_control_icon(lv_obj_t *scr, const muse_button_hint_t *pos,
                                     const char *symbol, uint32_t color)
  {
@@ -342,8 +342,62 @@
 +        size = 28;
 +    }
 +#endif
-+    lv_obj_t *icon = make_label(scr, font, color);
-+    lv_obj_set_size(icon, size, size);
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++    /* Keep the colored version's black backdrop, without a theme focus frame. */
++    lv_obj_t *icon = lv_label_create(scr);
++    lv_obj_remove_style_all(icon);
++    lv_obj_set_style_text_font(icon, font, 0);
++    lv_obj_set_style_text_color(icon, lv_color_hex(color), 0);
++    lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
      lv_obj_set_style_bg_color(icon, lv_color_black(), 0);
      lv_obj_set_style_bg_opa(icon, LV_OPA_COVER, 0);
      lv_obj_set_style_radius(icon, 6, 0);
++    lv_obj_set_style_border_width(icon, 0, 0);
++    lv_obj_set_style_outline_width(icon, 0, 0);
++    lv_obj_remove_flag(icon, LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_SCROLLABLE);
++#else
++    lv_obj_t *icon = make_label(scr, font, color);
++    lv_obj_set_style_bg_color(icon, lv_color_black(), 0);
++    lv_obj_set_style_bg_opa(icon, LV_OPA_COVER, 0);
++    lv_obj_set_style_radius(icon, 6, 0);
++#endif
++    lv_obj_set_size(icon, size, size);
+     lv_label_set_long_mode(icon, LV_LABEL_LONG_MODE_CLIP);
+     lv_label_set_text(icon, symbol);
+     lv_obj_remove_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+@@ -1070,14 +1128,22 @@
+     lv_obj_set_flag(s_pwr_hint, LV_OBJ_FLAG_HIDDEN, settings);
+     static int last_mode = -1;
+     if ((int)mode != last_mode) {
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++        color_mic(s_ptt_hint, mode == MUSE_MODE_LISTENING ? muse_pixel_accent(mode) : COLOR_DIM);
++#else
+         color_mic(s_ptt_hint, mode == MUSE_MODE_LISTENING ? 0x64d4ff : 0x80bfff);
++#endif
+         last_mode = (int)mode;
+     }
+     bool speaker_on = muse_settings_speaker_on();
+     const char *speaker = speaker_on ? LV_SYMBOL_VOLUME_MID : LV_SYMBOL_MUTE;
+     if (strcmp(speaker, lv_label_get_text(s_spk_hint))) {
+         lv_label_set_text(s_spk_hint, speaker);
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++        lv_obj_set_style_text_color(s_spk_hint, lv_color_hex(COLOR_DIM), 0);
++#else
+         lv_obj_set_style_text_color(s_spk_hint, lv_color_hex(speaker_on ? 0xffd060 : 0x8b7845), 0);
++#endif
+     }
+ }
+ 
+@@ -1124,7 +1190,12 @@
+         /* Dedicated ownership: legacy chrome/reply hides must never claim it. */
+         s_ptt_hint = make_mic(scr, 26);
+         lv_obj_align(s_ptt_hint, muse_board->talk_hint.align, muse_board->talk_hint.x, muse_board->talk_hint.y);
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++        s_spk_hint = make_control_icon(scr, &muse_board->speaker_hint, LV_SYMBOL_VOLUME_MID, COLOR_DIM);
++        s_pwr_hint = make_control_icon(scr, &muse_board->power_hint, LV_SYMBOL_POWER, COLOR_DIM);
++#else
+         s_spk_hint = make_control_icon(scr, &muse_board->speaker_hint, LV_SYMBOL_VOLUME_MID, 0xffd060);
+         s_pwr_hint = make_control_icon(scr, &muse_board->power_hint, LV_SYMBOL_POWER, 0xff8080);
++#endif
+         update_control_hints(MUSE_MODE_BOOT);
+     }

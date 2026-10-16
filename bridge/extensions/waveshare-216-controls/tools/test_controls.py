@@ -167,6 +167,21 @@ typedef struct { bool usb, charging; int battery_pct, battery_mv; } muse_power_t
                         str(EXT / 'tests/board_test.c'), '-o', str(binary)], check=True)
         subprocess.run([str(binary)], check=True, env={**os.environ, 'ASAN_OPTIONS': 'detect_leaks=0'})
 
+    def test_gray_controls_palette_and_original_recording_highlight(self):
+        self.stage()
+        source = (self.sdk / 'esp32/components/muse/muse_ui.c').read_text()
+        colors = [line for line in source.splitlines() if line.startswith('#define COLOR_')]
+        (self.sdk / 'sdk_colors.h').write_text('\n'.join(colors)+'\n')
+        start = source.index('static lv_obj_t *make_control_icon(')
+        end = source.index('static void build_overlays(', start)
+        (self.sdk / 'sdk_palette.inc').write_text(source[start:end])
+        for board in (0, 1):
+            binary = self.sdk / ('palette-test-'+str(board))
+            subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+                            '-fsanitize=address,undefined', '-DCONFIG_MUSE_BOARD_WAVESHARE_S3_216='+str(board), '-DCONFIG_LV_FONT_MONTSERRAT_24=1',
+                            '-I'+str(self.sdk), str(EXT / 'tests/palette_test.c'), '-o', str(binary)], check=True)
+            subprocess.run([str(binary)], check=True, env={**os.environ, 'ASAN_OPTIONS': 'detect_leaks=0'})
+
 
 if __name__ == '__main__':
     unittest.main()

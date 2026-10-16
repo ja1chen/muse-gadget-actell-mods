@@ -37,6 +37,8 @@ python3 bridge/extensions/waveshare-216-controls/tools/stage.py local/build/sdk-
 
 三图标位于顶边 y=6，左/右 x=-113/+113，中电源 x=0。电源使用原生 `lv_font_montserrat_24` 和 28×28 标签容器，底部 y=33，到 y=40 状态行保留 6px 空白；其他板仍用原 28px/36×36 规格。圆环绘制在顶部三个图标周围明确裁出留白，不以覆盖黑色背景代替预留。Speaker hint 不注册交互，`touch && !rim_controls` 保证本板不创建旧喇叭控件、回调或扩展热区；设置页触控保持可用。
 
+顶部图标保留彩色版本的位置、尺寸和黑色背景，无边框或焦点白框；喇叭、静音、电源及麦克风待机均使用原版灰紫色 `COLOR_DIM`，喇叭用字形区分开关状态，不增加白色底块。麦克风录音高亮沿用原版 `muse_pixel_accent()` 角色强调色。其他板配色保持原样。
+
 ## 验证与验收边界
 
 ```sh
