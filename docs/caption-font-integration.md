@@ -56,6 +56,8 @@ python3 bridge/extensions/muse-fonts/tools/build.py \
   --with-tts --secrets "$TTS_SECRETS_FILE"
 ```
 
+`--with-tts` 默认双向；切回 HTTP 添加 `--tts-transport http`，输出隔离到 `private-fonts-tts-http/`，接口宏会在构建后核验。不要仅修改输出 sdkconfig 后再次运行 runner，因为配置种子会重建。详细步骤见 [TTS 接口切换](doubao-tts.md#编译期选择接口)。
+
 `--with-tts` 要求普通导入工具确认 TTS 已启用，输出隔离到 `local/build/caption-firmware/private-fonts-tts/`。构建成功后由目标编译器只检查字体、TTS 和板卡开关，不回显配置内容；构建目录统一收紧权限。该模式仍不刷机，不改分区或资源，也不发送合成请求。
 
 **不要将 IDF 输出的通用 `flash` / `flash_args` 当作保留数据的迁移命令。** 通用产物包含初始化 otadata，可能重置 OTA 状态。本轮 runner 只执行 build；真正迁移须核对设备、备份、生成定点写入计划并独立授权。详见 [保留数据的迁移规划](font-partition-plan.md)。

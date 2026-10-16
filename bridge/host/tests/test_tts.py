@@ -67,6 +67,14 @@ class SecretsTests(unittest.TestCase):
         module.apply(self.source, self.target)
         self.assertEqual(self.target.read_text(), result)
 
+    def test_import_preserves_transport_selection(self):
+        self.write()
+        for selection in ['CONFIG_DOUBAO_TTS_BIDIRECTIONAL=y\n',
+                          '# CONFIG_DOUBAO_TTS_BIDIRECTIONAL is not set\n']:
+            self.target.write_text(selection)
+            module.apply(self.source, self.target)
+            self.assertIn(selection, self.target.read_text())
+
     def test_disabled_clears_old_key(self):
         for omitted in [False, True]:
             self.config['CONFIG_DOUBAO_TTS_API_KEY'] = ''
@@ -87,6 +95,7 @@ class SecretsTests(unittest.TestCase):
             good + 'CONFIG_DOUBAO_TTS_API_KEY="duplicate"\n', '[]',
             good + 'CONFIG_UNKNOWN="SYNTHETIC_PRIVATE"\n',
             good + 'CONFIG_DOUBAO_TTS=y\n',
+            good + 'CONFIG_DOUBAO_TTS_BIDIRECTIONAL=y\n',
             good + 'CONFIG_DOUBAO_TTS_RESOURCE_ID="seed-icl-2.0"\n',
             good.replace('CONFIG_DOUBAO_TTS_API_KEY=', 'export CONFIG_DOUBAO_TTS_API_KEY='),
             good + 'CONFIG_DOUBAO_TTS_API_KEY=y; echo SYNTHETIC_PRIVATE\n',
@@ -206,6 +215,16 @@ class SecretsTests(unittest.TestCase):
 
 
 class NativeStreamTests(unittest.TestCase):
+    def test_bidirectional_protocol(self):
+        with tempfile.TemporaryDirectory() as folder:
+            binary = Path(folder) / 'protocol'
+            subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-Wall', '-Wextra', '-Werror',
+                            '-fsanitize=address,undefined', '-g',
+                            '-I', str(EXT / 'components/doubao_tts/include'),
+                            str(EXT / 'components/doubao_tts/doubao_protocol.c'),
+                            str(EXT / 'tests/protocol_test.c'), '-o', str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def test_disabled_provider_compiles_without_network_dependencies(self):
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder)

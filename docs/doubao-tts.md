@@ -85,15 +85,51 @@ printf 'Build exit status: %s\n' "$tts_build_status"
 
 按需要在 defaults 末尾追加本工程的桥接、CJK 字体和板卡 USB overlay，使用其相对路径或环境变量。真实配置构建的完整输出只保存在 `local/logs/`，不要展示可能含凭据的错误上下文。部分构建工具会显式设置文件权限，不能只依赖 `umask`；成功或失败后均需收紧整个构建目录，保留当前用户所需的执行权限。构建成功不等于已刷机，实际刷机需用户明确授权。
 
+## 编译期选择接口
+
+默认 `CONFIG_DOUBAO_TTS_BIDIRECTIONAL=y`，使用[官方双向 WebSocket 接口](https://docs.volcengine.com/docs/DoubaoVoice/WebSocketBidirectionalStreaming-V3?lang=zh)。在普通构建配置（例如 `idf.py menuconfig` 的 Doubao reply speech 菜单）关闭这个选项，即编译原 HTTP 单向流式实现：
+
+```ini
+CONFIG_DOUBAO_TTS_BIDIRECTIONAL=y
+```
+
+选用 HTTP 时，将上述配置替换为：
+
+```ini
+# CONFIG_DOUBAO_TTS_BIDIRECTIONAL is not set
+```
+
+该开关属于构建配置，**不要放入秘密文件**；秘密文件仍只接受前述两个字段。导入工具保留构建配置中的接口选择。直接使用 IDF 时，新配置默认双向，已有 sdkconfig 显式关闭时会保留关闭状态，defaults 不覆盖已有值。两种实现互斥编译，不在运行时切换，失败后不自动回退或重放。API key 为空时两种实现都关闭。
+
+字体/TTS 组合构建入口会重建配置种子，因此不要仅在它的输出目录手动修改宏。切回原 HTTP 单向方案，使用明确参数：
+
+```sh
+python3 bridge/extensions/muse-fonts/tools/build.py \
+  --sdk local/build/sdk-copy --components-dir "$RESOLVED_COMPONENTS" --mode on \
+  --with-tts --tts-transport http --secrets "$TTS_SECRETS_FILE"
+```
+
+该命令显式关闭双向宏，输出到 `local/build/caption-firmware/private-fonts-tts-http/`，不会覆盖默认双向产物。恢复双向时使用 `--tts-transport bidirectional`，或省略该参数；输出仍为 `private-fonts-tts/`。构建结束会由编译器检查实际接口宏；构建不会刷机，切换接口后需另行授权刷入对应固件。两种接口共用 API key、固定资源/音色、PCM 输出、扬声器控制及取消语义；PSRAM 任务栈修复也适用于 HTTP。HTTP 切换参数经过合成 runner 与原生测试验证，当前真实服务及听到播报的验收针对双向实现。
+
+## 排查内容的保留与清理
+
+原始构建、刷机和串口日志以及一次性诊断/刷机脚本仍在忽略的 `local/` 中保留，未执行删除；真实配置、固件和原始日志按私密数据处理。代理不直接读取这些原始内容，诊断工具只输出白名单字段。它们不会纳入 Git 分享，后续删除应由用户明确授权，并保留需要的备份与最终验收记录。
+
+源码保留必要的固定阶段/数值诊断和回归测试，不存在自动采集串口、自动发送测试文本或自动重放的后台逻辑。底层 `transport_ws` 日志关闭，避免其错误分支回显鉴权请求头；组件只记录固定原因、协议状态码和计数。诊断版到修复版的刷写均保留持久数据及已有资源。
+
+## 双向传输实现
+
+双向实现复用 ESP-IDF 的 `tcp_transport`，无需额外 WebSocket SDK。完成 TLS 升级后依次进行连接确认、会话确认、文本任务、结束会话和音频收尾；只有收到 `SessionFinished` 且 PCM 完整才成功。会话 ID 每次随机生成，拒绝其他会话的音频。每个既有文本分段建立独立连接和会话，不跨分段复用。双向配置将 `CONFIG_WS_BUFFER_SIZE` 的范围设为 4096–65536（支持更大的显式值），覆盖旧缓存的 1024；同时启用动态握手缓冲，消费完握手阶段的缓存数据后释放，避免长期占用内部 RAM。
+
 ## 播放与资源边界
 
-- 通过固定的 `https://openspeech.bytedance.com/api/v3/tts/unidirectional` 请求流式合成，强制服务器证书校验，拒绝重定向，不向自定义地址发送凭据。
+- 默认通过固定的 `wss://openspeech.bytedance.com/api/v3/tts/bidirection` 合成；HTTP 实现保留固定地址 `https://openspeech.bytedance.com/api/v3/tts/unidirectional`。两者均校验服务器证书、拒绝重定向，不向自定义地址发送凭据。
 - 启用播报时，待朗读的回复文本会发送到豆包云端合成；请求不包含 Muse Gadget SDK token、配网信息或 Actell 配对邀请。API key 仅用于豆包请求鉴权。
 - 输出为 PCM16、小端、单声道、16 kHz，按 32 KB/s 播放，无 MP3 解码或重采样。需在真实云端调用时核对返回格式。
-- 单一网络工作任务读取响应；JSON 对象可跨 HTTP 分包，也可在一次读取中连续出现。解析后分块解码 base64，保留跨音频块的半个 PCM 样本。
-- 预留 128 KiB PSRAM PCM 环形缓冲、128 KiB JSON 记录缓冲及 8 KiB 工作任务栈。JSON 解析还有临时分配，不能将这些固定缓冲之和当作峰值内存。复用 SDK 现有 64 KB 输出缓冲；字幕文本上限扩大至每条 8191 UTF-8 字节，8 条最多增加约 56 KiB PSRAM。原有 MP3 缓冲仍由上游分配，暂不移除。
-- PCM 缓冲满时等待消费，以 TCP 背压限制接收；单个 JSON 对象超过 128 KiB 时终止，不丢弃中间音频继续播放。单段请求最长 120 秒，网络无数据超时 15 秒，单次阻塞 I/O 超时 5 秒。
-- 回复按最多 1023 UTF-8 字节分段，尽量在句末切分，按顺序合成；这可能产生段间停顿。不实现文本增量输入、跨段韵律保持或离线合成。超过字幕总容量时明确报错，不静默播报被截断的文本。
+- 单一网络工作任务处理传输。双向版按最多 256 UTF-8 字节提交文本任务，穿插读取音频；重组 WebSocket 二进制消息及 continuation 分片，再解析事件与原始 PCM。HTTP 版解析跨分包或连续 JSON 并分块解码 base64。两者保留跨音频块的半个 PCM 样本。
+- 预留 128 KiB PSRAM PCM 环形缓冲、128 KiB 协议消息缓冲；双向版工作任务栈为 12 KiB，HTTP 版为 8 KiB；板卡允许外部任务栈时分配在 PSRAM，FreeRTOS 控制块仍在内部 RAM，否则使用内部栈。该工作任务不写 Flash。双向版直接接收二进制 PCM，省去音频 base64 解码；TLS/WebSocket、JSON 解析仍有临时分配，不能将这些固定缓冲之和当作峰值内存。复用 SDK 现有 64 KB 输出缓冲；字幕文本上限扩大至每条 8191 UTF-8 字节，8 条最多增加约 56 KiB PSRAM。原有 MP3 缓冲仍由上游分配，暂不移除。
+- PCM 缓冲满时等待消费，以 TCP 背压限制接收；单个协议消息（HTTP JSON 或双向事件包）超过 128 KiB 时终止，不丢弃中间音频继续播放。单段请求最长 120 秒，网络无数据超时 15 秒，TLS 建连/HTTP I/O 超时 5 秒，双向读写超时 1 秒，退出时尽力发送取消/关闭事件（各最多 0.5 秒）。
+- 回复按最多 1023 UTF-8 字节分段，尽量在句末切分，按顺序合成；这可能产生段间停顿。段内的双向文本任务支持分块送入；Muse 接点仍等待整条回复完成，未接入 LLM 增量文本，也不实现跨段韵律保持或离线合成。Muse 请求仍使用 `output_modality: text`，扬声器开关只控制本地播报流程。超过字幕总容量时明确报错，不静默播报被截断的文本。
 - 新会话/取消通过代次失效旧任务和旧 PCM；本地取消立即生效，阻塞中的网络任务在 I/O 超时后退出。每段只提交一次，认证、网络、格式或超时失败均不自动重放，显示 `TTS UNAVAILABLE`。已经发出的云端请求可能已计费。
 - 回复开始前已关闭扬声器，或未启用扩展时，跳过 TTS 并沿用上游静音字幕节奏。播报中途静音仅停止出声，当前回复的合成与后续分段仍可能继续；音量为零也不会跳过 TTS。字幕仍是基于播放帧数估算，未接入豆包字级时间戳。
 
@@ -104,9 +140,11 @@ SDK 补丁还将原有 MP3 自检的重采样状态显式零初始化，修复�
 ```sh
 python3 bridge/tools/dev.py test
 python3 bridge/tools/validation/run-tts-worker.py --sdk-root local/build/sdk-copy
+# 在 ESP-IDF Python 环境运行：
+python3 bridge/tools/validation/run-tts-kconfig.py
 python3 bridge/tools/check-share.py
 ```
 
-主机回归使用合成数据验证碎片 JSON、base64、边界和私密配置导入。独立 worker harness 需要暂存 SDK 已解析的 cJSON 源码，用模拟 HTTPS 验证跨块样本连续性、错误/不完整响应、取消、新代次隔离及缓冲背压；它不建立网络连接。两类原生 harness 均启用 ASan/UBSan。构建验证可使用合成配置；使用真实配置的构建输出保持本机私密。云端鉴权、首声延迟、内部 RAM 最低余量、屏幕动画并行运行、断网/打断和长回复播放需真实设备单独验收；TTS 组件日志仅输出数值指标及固定状态，不输出文本或云端错误正文。
+主机回归使用合成数据验证碎片 JSON、base64、双向协议帧、边界和私密配置导入。独立 worker harness 需要暂存 SDK 已解析的 cJSON 源码，同时编译 HTTP 与双向两种实现；模拟 HTTPS/WebSocket 验证分包与 continuation 分片、UTF-8 送字、错误/不完整响应、取消、新代次隔离及缓冲背压，并模拟内部栈不可分配、PSRAM 可用时的任务初始化，不建立网络连接。原生 harness 均启用 ASan/UBSan。构建验证可使用合成配置；使用真实配置的构建输出保持本机私密。真实配置的短语音回复已在 Waveshare 2.16 完成 WebSocket 升级、会话结束确认与非空 PCM 接收，并由用户确认正常播出；这不代表首声延迟、内部 RAM 最低余量、屏幕动画并行运行、断网/打断和长回复播放已验收，后者仍需单独验证。TTS 组件日志仅输出数值指标及固定状态，不输出文本或云端错误正文。双向版 `doubao_ws` 记录固定阶段名、HTTP 状态、协议事件/类型/序列化编号、服务错误码与 PCM 字节数；关闭底层 WebSocket 日志，避免其错误分支输出鉴权请求头。
 
-官方接口参考：[HTTP 单向流式](https://docs.volcengine.com/docs/DoubaoVoice/unidirectional-streaming-text-to-speech-http?lang=zh)、[旧版 V3 HTTP 流式说明](https://docs.volcengine.com/docs/DoubaoVoice/HTTPChunkedSSEUnidirectionalStreaming-V3?lang=zh)、[ESP-IDF HTTP Client](https://docs.espressif.com/projects/esp-idf/en/v6.0/esp32/api-reference/protocols/esp_http_client.html)。
+官方接口参考：[双向 WebSocket](https://docs.volcengine.com/docs/DoubaoVoice/WebSocketBidirectionalStreaming-V3?lang=zh)、[HTTP 单向流式](https://docs.volcengine.com/docs/DoubaoVoice/unidirectional-streaming-text-to-speech-http?lang=zh)、[旧版 V3 HTTP 流式说明](https://docs.volcengine.com/docs/DoubaoVoice/HTTPChunkedSSEUnidirectionalStreaming-V3?lang=zh)、[ESP-IDF HTTP Client](https://docs.espressif.com/projects/esp-idf/en/v6.0/esp32/api-reference/protocols/esp_http_client.html)。

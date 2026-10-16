@@ -9,18 +9,28 @@
 #include "cJSON.h"
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
+#if !CONFIG_DOUBAO_TTS_BIDIRECTIONAL
 #include "esp_http_client.h"
+#else
+#include "doubao_ws.h"
+#endif
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "freertos/idf_additions.h"
 #include "tts_stream.h"
 
 #define PCM_CAP (128 * 1024)
 #define JSON_CAP (128 * 1024)
 #define TEXT_CAP 1024
+#if CONFIG_DOUBAO_TTS_BIDIRECTIONAL
+#define WORKER_STACK 12288
+#else
+#define WORKER_STACK 8192
+#endif
 #define REQUEST_US (120LL * 1000000)
 #define IDLE_US (15LL * 1000000)
 #define URL "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
@@ -52,7 +62,7 @@ static bool active(const request_t *r)
     return ok && esp_timer_get_time() < r->deadline;
 }
 
-/* A full ring stops HTTP reads and applies TCP backpressure. Never drop PCM. */
+/* A full ring stops network reads and applies TCP backpressure. Never drop PCM. */
 static bool audio(void *context, const uint8_t *bytes, size_t size)
 {
     request_t *r = context;
@@ -77,6 +87,7 @@ static bool audio(void *context, const uint8_t *bytes, size_t size)
     return !size && active(r);
 }
 
+#if !CONFIG_DOUBAO_TTS_BIDIRECTIONAL
 static bool record(void *context, const char *json, size_t size)
 {
     request_t *r = context;
@@ -183,6 +194,13 @@ cleanup:
     cJSON_free(payload);
     return ok && active(r);
 }
+#else
+static bool ws_active(void *context) { return active(context); }
+static bool synthesize(job_t *job, request_t *r)
+{
+    return doubao_ws_synthesize(job->text, r, ws_active, audio, (uint8_t *)s_json, JSON_CAP);
+}
+#endif
 
 static void worker(void *unused)
 {
@@ -209,17 +227,36 @@ static void worker(void *unused)
     }
 }
 
-/* Only the session task initializes and submits work. The worker owns HTTP. */
+/* Only the session task initializes and submits work. The worker owns the network transport. */
 bool doubao_tts_start(const char *text)
 {
     if (!text || !text[0] || strnlen(text, TEXT_CAP) >= TEXT_CAP ||
         !CONFIG_DOUBAO_TTS_API_KEY[0] ||
-        strpbrk(CONFIG_DOUBAO_TTS_API_KEY, "\r\n")) return false;
+        strpbrk(CONFIG_DOUBAO_TTS_API_KEY, "\r\n")) {
+        ESP_LOGI(TAG, "start_failed reason=invalid_request");
+        return false;
+    }
     if (!s_jobs) {
         s_pcm = heap_caps_malloc(PCM_CAP, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         s_json = heap_caps_malloc(JSON_CAP, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         s_jobs = xQueueCreate(1, sizeof(job_t));
-        if (!s_pcm || !s_json || !s_jobs || xTaskCreate(worker, "doubao_tts", 8192, NULL, 4, NULL) != pdPASS) {
+        bool task_started = false;
+        if (s_pcm && s_json && s_jobs) {
+#if CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY
+            /* Like Muse's existing TLS task, this worker never writes flash.
+             * Keep its contiguous stack out of fragmented internal RAM; the
+             * FreeRTOS control block remains internal. */
+            task_started = xTaskCreateWithCaps(worker, "doubao_tts", WORKER_STACK, NULL, 4, NULL,
+                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
+#else
+            task_started = xTaskCreate(worker, "doubao_tts", WORKER_STACK, NULL, 4, NULL) == pdPASS;
+#endif
+        }
+        if (!task_started) {
+            ESP_LOGI(TAG, "start_failed reason=allocate pcm=%d scratch=%d queue=%d internal_free=%u psram_free=%u",
+                s_pcm != NULL, s_json != NULL, s_jobs != NULL,
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
             if (s_jobs) vQueueDelete(s_jobs);
             free(s_pcm); free(s_json);
             s_pcm = NULL; s_json = NULL; s_jobs = NULL;

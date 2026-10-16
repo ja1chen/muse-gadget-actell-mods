@@ -23,9 +23,14 @@ def main():
     parser.add_argument('--secrets', type=Path, help='private import; SDK-only unless --with-tts; values never displayed')
     parser.add_argument('--with-tts', action='store_true', help='build combined fonts/TTS using the normal private importer')
     parser.add_argument('--with-controls', action='store_true', help='include the staged Waveshare 2.16 controls and native 24px overlay')
+    parser.add_argument('--tts-transport', choices=['bidirectional', 'http'],
+                        help='requires --with-tts; defaults to bidirectional; HTTP output is isolated')
     args = parser.parse_args()
     if args.with_controls and args.mode == 'headless':
         parser.error('controls require a display profile')
+    if args.tts_transport and not args.with_tts:
+        parser.error('--tts-transport requires --with-tts')
+    tts_transport = (args.tts_transport or 'bidirectional') if args.with_tts else None
     private = args.secrets is not None
     if private and args.mode != 'on':
         parser.error('private SDK-token build supports the independent font-on profile only')
@@ -45,6 +50,8 @@ def main():
                         str(args.sdk.resolve()), '--check'], check=True, stdout=subprocess.DEVNULL)
     idf = Path(os.environ['IDF_PATH'])
     label = 'private-fonts-tts' if args.with_tts else 'private-on' if private else args.mode
+    if tts_transport == 'http':
+        label += '-http'
     if args.with_controls:
         label += '-controls'
     build = ROOT / 'local/build/caption-firmware' / label
@@ -56,6 +63,8 @@ def main():
                       'CONFIG_HOMEHUB_TUNNEL=n\nCONFIG_ACTELL_BRIDGE=y\nCONFIG_ACTELL_CAPTION_FONT=' +
                       ('y' if args.mode == 'on' else 'n') + '\n' +
                       ('CONFIG_MUSE_CJK_FONT=y\n' if args.mode != 'headless' else '') +
+                      (('CONFIG_DOUBAO_TTS_BIDIRECTIONAL=y\n' if tts_transport == 'bidirectional' else
+                        '# CONFIG_DOUBAO_TTS_BIDIRECTIONAL is not set\n') if args.with_tts else '') +
                       ('CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="components/actell_fonts/partitions.resources.csv"\n' if args.mode == 'on' else ''))
     defaults = [sdk / 'sdkconfig.defaults']
     if args.mode == 'headless':
@@ -112,7 +121,8 @@ def main():
         # are exposed. Check only the required feature switches.
         check = subprocess.run([compiler, '-x', 'c', '-fsyntax-only', '-include',
                                 str(build / 'config/sdkconfig.h'), '-'], input=
-                               '#if !CONFIG_ACTELL_CAPTION_FONT || !CONFIG_DOUBAO_TTS || !CONFIG_MUSE_HATCH || !CONFIG_MUSE_BOARD_WAVESHARE_S3_216\n#error Combined features missing\n#endif\n',
+                               '#if !CONFIG_ACTELL_CAPTION_FONT || !CONFIG_DOUBAO_TTS || !CONFIG_MUSE_HATCH || !CONFIG_MUSE_BOARD_WAVESHARE_S3_216\n#error Combined features missing\n#endif\n' +
+                               f'#if !!CONFIG_DOUBAO_TTS_BIDIRECTIONAL != {int(tts_transport == "bidirectional")}\n#error TTS transport mismatch\n#endif\n',
                                capture_output=True, text=True)
         if check.returncode:
             print('Combined target feature check failed; private details withheld.')
@@ -134,7 +144,8 @@ def main():
                   app_bytes=image.stat().st_size, app_sha256=None if private else hashlib.sha256(image.read_bytes()).hexdigest(),
                   capacity_bytes=4 * 1024 * 1024 if args.mode != 'headless' else 2 * 1024 * 1024,
                   private_configuration_used=private, provider_credentials_imported=args.with_tts,
-                  combined_features_verified=args.with_tts, controls_verified=args.with_controls, device_partition_changed=False,
+                  combined_features_verified=args.with_tts, controls_verified=args.with_controls,
+                  tts_transport=tts_transport, device_partition_changed=False,
                   shared_resource_table=args.mode == 'on', flashed=False)
     report['free_bytes'] = report['capacity_bytes'] - report['app_bytes']
     destination = ROOT / 'local/validation/caption-fonts'

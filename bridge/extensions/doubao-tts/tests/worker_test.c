@@ -20,6 +20,11 @@ QueueHandle_t xQueueCreate(unsigned n, unsigned size) { (void)n; (void)size; ret
 void vQueueDelete(QueueHandle_t q) { (void)q; }
 int xTaskCreate(void (*fn)(void *), const char *name, unsigned stack, void *arg, int pri, void *handle)
 { (void)fn; (void)name; (void)stack; (void)arg; (void)pri; (void)handle; return pdPASS; }
+int xTaskCreateWithCaps(void (*fn)(void *), const char *name, unsigned stack, void *arg, int pri, void *handle, unsigned caps)
+{
+    assert(caps == (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    return xTaskCreate(fn,name,stack,arg,pri,handle);
+}
 int xQueueOverwrite(QueueHandle_t q, const void *job) { (void)q; (void)job; return pdPASS; }
 int xQueueReceive(QueueHandle_t q, void *job, unsigned wait) { (void)q; (void)job; (void)wait; return 0; }
 void vTaskDelay(unsigned ms)
