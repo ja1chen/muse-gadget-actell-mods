@@ -141,7 +141,7 @@ def verify(image, required=None):
 
 
 def build(font, extra):
-    if not re.fullmatch(r'actell_device_sans_(regular|medium)_(24|28)_[24]', font):
+    if not re.fullmatch(r'actell_device_sans_(regular|medium)_(16|24|28)_[24]', font):
         raise ValueError('Invalid candidate name')
     report_path = ROOT / 'local/validation/caption-fonts' / (font + '.json')
     report = json.loads(report_path.read_text())

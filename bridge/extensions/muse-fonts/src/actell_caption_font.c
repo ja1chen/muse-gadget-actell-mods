@@ -113,6 +113,9 @@ bool actell_caption_init(void)
         }
     }
     valid = valid && previous_end == total && font_bytes && actell_font_open(&data, font_bytes, font_length);
+    /* A larger legacy asset must not silently enlarge the original UI again. */
+    valid = valid && font_bytes[14] == 16 && font_bytes[15] == 0 &&
+            data.line_height == 17 && data.baseline == 3;
     actell_glyph_t question;
     valid = valid && actell_font_glyph(&data, '?', &question);
     cJSON_Delete(root);

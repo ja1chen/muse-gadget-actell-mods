@@ -31,7 +31,7 @@ def main():
                     '-I' + str(EXT / 'tests/fakes'), '-I' + str(EXT / 'include'), '-I' + str(cjson), '-I' + str(lvgl),
                     *map(str, sorted((EXT / 'src').glob('*.c'))), str(cjson / 'cJSON.c'),
                     str(EXT / 'tests/resource_port_test.c'), '-o', str(binary)], check=True)
-    original = (ROOT / 'local/build/read-only-resources/actell_device_sans_regular_24_4/resources.bin').read_bytes()
+    original = (ROOT / 'local/build/read-only-resources/actell_device_sans_regular_16_4/resources.bin').read_bytes()
     cases = [('missing', None, False), ('valid', original, True)]
     corrupt = bytearray(original); corrupt[65536] ^= 1
     cases.append(('payload-corrupt', corrupt, False))
@@ -40,6 +40,12 @@ def main():
     directory = pack.verify(original)
     assets = [(e['id'], e['format'], original[e['offset']:e['offset'] + e['length']]) for e in directory['entries']]
     cases.append(('wrong-font-format', pack.create([(a, 'incompatible.font' if a == 'caption.font' else f, b) for a, f, b in assets], 'synthetic'), False))
+    legacy = []
+    for name, fmt, data in assets:
+        if name == 'caption.font':
+            data = bytearray(data); struct.pack_into('<H', data, 14, 24); data = bytes(data)
+        legacy.append((name, fmt, data))
+    cases.append(('legacy-large-font-valid-container-hashes', pack.create(legacy, 'synthetic'), False))
     broken = []
     for name, fmt, data in assets:
         if name == 'caption.font':

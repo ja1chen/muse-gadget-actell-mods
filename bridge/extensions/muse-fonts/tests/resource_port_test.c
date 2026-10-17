@@ -51,7 +51,7 @@ int main(int argc, char **argv)
     assert(actell_caption_active() == expected);
     assert(actell_caption_init() == expected); /* no retry/replay or duplicate mmap */
     if (expected) {
-        const lv_font_t *font = actell_caption_font(); assert(font && font->line_height == 46);
+        const lv_font_t *font = actell_caption_font(); assert(font && font->line_height == 17 && font->base_line == 3);
         lv_font_glyph_dsc_t glyph = {.resolved_font = font};
         assert(font->get_glyph_dsc(font, &glyph, 0x4e2d, 0));
         uint8_t pixels[4096];
