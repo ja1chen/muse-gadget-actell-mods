@@ -9,6 +9,81 @@ def digest(b): return hashlib.sha256(b).hexdigest()
 def edit_once(s,a,b):
     if s.count(a)!=1: raise ValueError('Unsupported SDK anchor: '+a[:80])
     return s.replace(a,b)
+
+def integrate_mouth(ui, header):
+    """Apply only the mouth channel additions to a v2-staged UI/header pair.
+
+    Called by clean staging and the hash-guarded updater so both paths produce
+    byte-identical SDK integration. Unknown or repeated anchors are refused.
+    Existing level/meter smoothing is deliberately preserved.
+    """
+    ui=edit_once(ui, '#include "muse_pixel.h"\n',
+                 '#include "muse_pixel.h"\n#include "avatar/actell_mouth_envelope.h"\n')
+    ui=edit_once(ui, 'static float s_level;\n',
+                 'static float s_level;\nstatic actell_mouth_envelope_t s_mouth;\n')
+    ui=edit_once(ui, '    float now = (float)esp_timer_get_time() / 1e6f;',
+                 '    int64_t mouth_now_us = esp_timer_get_time();\n'
+                 '    float now = (float)mouth_now_us / 1e6f;\n'
+                 '    muse_mouth_sample_t mouth_sample = muse_state_take_mouth_sample();\n'
+                 '    float mouth_level = actell_mouth_step(&s_mouth, &mouth_sample, mouth_now_us);')
+    ui=edit_once(ui, '        .happy = muse_state_happiness(),',
+                 '        .happy = muse_state_happiness(),\n'
+                 '        .mouth_level = mouth_level,\n'
+                 '        .mouth_level_valid = true,')
+    header=edit_once(header, '    float happy;     /* 0..1 pet reaction */',
+                    '    float happy;     /* 0..1 pet reaction */\n'
+                    '    float mouth_level; /* 0..1 dedicated fast-release mouth channel */\n'
+                    '    bool mouth_level_valid; /* false: renderer falls back to level */')
+    return ui, header
+
+
+def integrate_mouth_state(source, header):
+    """Add an independent, spinlock-protected observer; keep global level intact."""
+    source=edit_once(source, '#include <stdarg.h>\n', '#include <math.h>\n#include <stdarg.h>\n')
+    source=edit_once(source, 'static volatile float s_level;\n',
+        'static volatile float s_level;\n'
+        'static portMUX_TYPE s_mouth_lock = portMUX_INITIALIZER_UNLOCKED;\n'
+        'static muse_mouth_sample_t s_mouth_sample;\n')
+    source=edit_once(source, 'void muse_state_set_mode(muse_mode_t mode)\n{\n    if (mode == s_mode) {\n        return;\n    }\n    /* Shutting down wins over the voice pipeline finishing a turn. */\n    if (s_mode == MUSE_MODE_OFF && mode != MUSE_MODE_IDLE) {\n        return;\n    }\n    s_mode_since_us = esp_timer_get_time();\n    s_mode = mode;\n}\n',
+        'void muse_state_set_mode(muse_mode_t mode)\n{\n    portENTER_CRITICAL(&s_mouth_lock);\n    if (mode == s_mode) {\n        portEXIT_CRITICAL(&s_mouth_lock);\n        return;\n    }\n    /* Shutting down wins over the voice pipeline finishing a turn. */\n    if (s_mode == MUSE_MODE_OFF && mode != MUSE_MODE_IDLE) {\n        portEXIT_CRITICAL(&s_mouth_lock);\n        return;\n    }\n    s_mouth_sample = (muse_mouth_sample_t){\n        .generation = s_mouth_sample.generation + 1u,\n        .speaking = mode == MUSE_MODE_SPEAKING,\n    };\n    s_mode_since_us = esp_timer_get_time();\n    s_mode = mode;\n    portEXIT_CRITICAL(&s_mouth_lock);\n}\n')
+    source=edit_once(source, '    s_level = level < 0 ? 0 : (level > 1 ? 1 : level);',
+        '    s_level = level < 0 ? 0 : (level > 1 ? 1 : level);\n'
+        '    float observer_level = isfinite(level) ? fminf(fmaxf(level, 0), 1) : 0;\n'
+        '    portENTER_CRITICAL(&s_mouth_lock);\n'
+        '    if (s_mouth_sample.speaking) {\n'
+        '        if (observer_level > s_mouth_sample.peak) {\n'
+        '            s_mouth_sample.peak = observer_level;\n'
+        '        }\n'
+        '        if (observer_level > 0.02f) {\n'
+        '            s_mouth_sample.last_voice_us = esp_timer_get_time();\n'
+        '            s_mouth_sample.heard_voice = true;\n'
+        '        }\n'
+        '    }\n'
+        '    portEXIT_CRITICAL(&s_mouth_lock);')
+    source=edit_once(source, 'float muse_state_level(void)\n',
+        'muse_mouth_sample_t muse_state_take_mouth_sample(void)\n'
+        '{\n'
+        '    portENTER_CRITICAL(&s_mouth_lock);\n'
+        '    muse_mouth_sample_t sample = s_mouth_sample;\n'
+        '    s_mouth_sample.peak = 0;\n'
+        '    portEXIT_CRITICAL(&s_mouth_lock);\n'
+        '    return sample;\n'
+        '}\n\n'
+        'float muse_state_level(void)\n')
+    header=edit_once(header, 'float muse_state_level(void);\n',
+        'float muse_state_level(void);\n\n'
+        '/* Independent mouth observer. Single UI consumer takes and clears peak.\n'
+        ' * Last voice timestamp and speaking generation persist until mode change. */\n'
+        'typedef struct {\n'
+        '    float peak;\n'
+        '    int64_t last_voice_us;\n'
+        '    uint32_t generation;\n'
+        '    bool speaking;\n'
+        '    bool heard_voice;\n'
+        '} muse_mouth_sample_t;\n'
+        'muse_mouth_sample_t muse_state_take_mouth_sample(void);\n')
+    return source, header
+
 def main():
     p=argparse.ArgumentParser();p.add_argument('--sdk-root',type=Path,required=True);p.add_argument('--rollback',action='store_true');a=p.parse_args()
     c=a.sdk_root/'esp32/components/muse';target=c/'avatar';record=c/'.actell-avatar-v2-stage.json'
@@ -32,7 +107,8 @@ def main():
     # Registration belongs to component Kconfig (name varies between snapshots).
     kname='Kconfig.projbuild' if kc is not None else 'Kconfig'
     if kc is None:kc=(c/kname).read_text()
-    before={'muse_pixel.h':h,'muse_ui.c':ui,kname:kc}
+    state_c=(c/'muse_state.c').read_text();state_h=(c/'muse_state.h').read_text()
+    before={'muse_pixel.h':h,'muse_ui.c':ui,kname:kc,'muse_state.c':state_c,'muse_state.h':state_h}
     h=edit_once(h,'#define MUSE_PX_W 64\n#define MUSE_PX_H 64','''#ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
@@ -73,12 +149,15 @@ config MUSE_AVATAR_V2
         restore the SDK official/custom avatar selection behavior.
 # ACTELL_AVATAR_V2_END
 '''
-    after={'muse_pixel.h':h,'muse_ui.c':ui,kname:kc}
+    ui,h=integrate_mouth(ui,h)
+    state_c,state_h=integrate_mouth_state(state_c,state_h)
+    after={'muse_pixel.h':h,'muse_ui.c':ui,kname:kc,'muse_state.c':state_c,'muse_state.h':state_h}
     # SDK custom-avatar CMake source is a single TU. Keep original source files
     # independent, using a tiny dispatcher without editing SDK CMake.
     files={'muse_pixel.c':(ROOT/'src/muse_pixel_dispatch.c').read_bytes().replace(b'"muse_pixel.c"',b'"muse_pixel_legacy.c"'),
            'muse_pixel_legacy.c':(ROOT/'src/muse_pixel.c').read_bytes(),
            'muse_pixel_160.c':(ROOT/'src/muse_pixel_160.c').read_bytes(),
+           'actell_mouth_envelope.h':(ROOT/'src/actell_mouth_envelope.h').read_bytes(),
            'actell_avatar.c':(ROOT/'src/actell_avatar.c').read_bytes(),
            'actell_avatar.h':(ROOT/'include/actell_avatar.h').read_bytes()}
     for f in files:
