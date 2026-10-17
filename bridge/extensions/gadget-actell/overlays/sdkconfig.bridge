@@ -1,5 +1,6 @@
 CONFIG_ACTELL_BRIDGE=y
 CONFIG_HOMEHUB_TUNNEL=n
-# Experimental image return stays off until model visibility is validated.
-CONFIG_ACTELL_BRIDGE_IMAGES=n
+# Phone viewing/control are core capabilities; validate model visibility on target.
+CONFIG_ACTELL_BRIDGE_IMAGES=y
+CONFIG_ACTELL_BRIDGE_AVATAR_ACTIVITY=y
 CONFIG_ACTELL_BRIDGE_USB_SETUP=n

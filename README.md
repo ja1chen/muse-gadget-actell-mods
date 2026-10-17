@@ -4,6 +4,8 @@ English | [简体中文](README.zh-CN.md)
 
 An independent Actell extension project for Muse Gadget SDK, targeting Waveshare ESP32-S3-Touch-AMOLED-2.16 with an optional headless configuration. Muse handles planning; the device component calls Actell over HTTPS/HMAC, using Actell's authorization, approval, and execution queue.
 
+[Simple LAN pairing (SLAN/1)](docs/slan-pairing.md) lets Muse request a connection from device settings and receive credentials after approval on iPhone. First pairing uses TOFU on trusted Wi-Fi and does not resist an active LAN attacker; later connections pin the exact certificate. Bonjour locates the network address; its TXT host supplies the stable TLS name and SNI, allowing IP changes without replacing the saved identity. Older pairing advertisements without host require an app update. No new BLE service, QR flow or ESP HTTPS server is used.
+
 ## Repository layout
 
 | Directory | Contents |
@@ -57,6 +59,15 @@ Optional [Waveshare 2.16 controls](bridge/extensions/waveshare-216-controls/READ
 - [Muse skill](bridge/extensions/skills/gadget-actell-remote/SKILL.md)
 - [Provenance and licensing](THIRD_PARTY.md)
 
+Actell command descriptions include the phone-tool workflow and parameter examples; a separate skill injection is not required.
+Use `actell.screenshot` to receive the phone screen in one call. Flat input tools use normalized coordinates without requiring a screenshot; `actell.call_status` reconciles an original operation. Permanent local invoke history has a finite first-version capacity of at most 512 calls, based on available NVS; see the [integration status](docs/actell-flat-tools-integration-status.md).
+The normal bridge profile enables screenshot JPEG return and phone read/write avatar activity. Activity covers the worker request through connection and image delivery, indicates processing rather than execution success, and adds no RPCs or waits; actual animation and model image visibility require target verification.
+Completed phone-tool JSON results use a bounded 256 KiB receiver; oversize reads are reported separately from network failures.
+Actell settings include a persistent Auto-connect switch; enabled by default, it retries the saved pairing every 30 seconds without replaying actions. Clock synchronization also wakes a disconnected saved pairing immediately, while respecting disabled auto-connect and paused retries.
+Completed duplicate invokes return a safe reconciliation error; read-only queries recycle finished work slots while mutating invoke IDs retain bounded protection against replay.
+Reconnect failures and Cancel preserve saved pairing; only an explicit Forget pairing removes it.
+Pair with Actell automatically requests the single open pairing window; approve the Muse on iPhone. The ESP32 no longer displays service names as phone choices. Multiple open windows require narrowing to one target.
+
 Maintain both indexes alongside implementation changes. Keep entries brief and organized by category, without dates or numbering; implementation, setup, and validation details belong in the linked guides.
 
 The project's independent code follows the root Apache-2.0 LICENSE. Actell remains a separate application under its own GPL-3.0 license. Public synthetic authentication vectors are test data; project-local tokens, pairing information, and private keys belong in `local/credentials/`. User-selected secrets source files may remain outside the project.
@@ -75,3 +86,5 @@ git status --short
 The checker scans tracked and non-ignored files, reporting paths and issue types without printing credentials. It does not replace manual review. Generate distributable archives from reviewed Git commits and write them to `local/`; do not archive the entire working directory.
 
 For a comparison with the actual credentials, run `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --audit-share`. This tool checks Git-visible working files and staged contents, reporting sanitized locations only; it does not reveal values or matching lines.
+
+Authentication rejection preserves saved pairing and Wi-Fi; boot-only SDK reporting does not refresh an otherwise usable device credential.

@@ -1,11 +1,13 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "actell_private.h"
+#include "actell_lan.h"
+#include "actell_buffer.h"
 #include "esp_http_client.h"
 #include "esp_random.h"
 #include "mdns.h"
 #include "lwip/inet.h"
 #include "esp_timer.h"
 #include "esp_sntp.h"
+#include "esp_log.h"
 #include "psa/crypto.h"
 #include <string.h>
 #include <strings.h>
@@ -17,15 +19,16 @@ size_t cap;
 int64_t end;
 uint64_t generation;
 bool failed;
+const char *event_failure;
 } sink;
 
 static esp_err_t receive(esp_http_client_event_t *event){
  sink*s=event->user_data;
-if(esp_timer_get_time()>s->end||!actell_bridge_current(s->generation)){s->failed=true;
+if(esp_timer_get_time()>s->end||!actell_bridge_current(s->generation)){s->failed=true;s->event_failure="session_or_deadline";
 return ESP_FAIL;
 }
  if(event->event_id==HTTP_EVENT_ON_HEADER){
- #define HEADER(name,field) if(!strcasecmp(event->header_key,name)){if(strlen(event->header_value)>=sizeof(s->r->field)){s->failed=true;return ESP_FAIL;}strcpy(s->r->field,event->header_value);}
+ #define HEADER(name,field) if(!strcasecmp(event->header_key,name)){if(strlen(event->header_value)>=sizeof(s->r->field)){s->failed=true;s->event_failure="response_header";return ESP_FAIL;}strcpy(s->r->field,event->header_value);}
   HEADER("Content-Type",mime) HEADER("X-Actell-Request-Id",request_id) HEADER("X-Actell-Image-Id",image_id)
   HEADER("X-Actell-Generation",generation) HEADER("X-Actell-Width",width) HEADER("X-Actell-Height",height)
   HEADER("X-Actell-SHA256",digest) HEADER("X-Actell-Geometry-Revision",revision) HEADER("X-Actell-Image-Contract",contract)
@@ -35,21 +38,18 @@ return ESP_FAIL;
 
 }
 esp_err_t actell_http(const actell_config*c,const char*id,const char*body,bool image,uint64_t generation,int64_t expires,actell_response*r){
- if(!actell_bridge_current(generation)||esp_timer_get_time()>expires)return ESP_ERR_INVALID_STATE;
-
- time_t now=time(NULL);
-
- if(now<1700000000){
-  static bool time_started;
-
-  if(!time_started){esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-esp_sntp_setservername(0,"pool.ntp.org");
-esp_sntp_init();
-time_started=true;
+ return actell_http_with_locator(c,id,body,image,generation,expires,r,NULL);
 }
-  return ESP_ERR_INVALID_STATE;
+esp_err_t actell_http_with_locator(const actell_config*c,const char*id,const char*body,bool image,uint64_t generation,int64_t expires,actell_response*r,actell_http_locator *locator){
+ int64_t began=esp_timer_get_time(),discovery_ms=0,tls_ms=0,body_started=0;
+ memset(r,0,sizeof(*r));r->expected_bytes=-1;r->transport_stage="session_or_deadline";
+ if(!actell_bridge_current(generation)||esp_timer_get_time()>expires){
+ ESP_LOGW("actell.rpc","transport stage=session_or_deadline");return ESP_ERR_INVALID_STATE;}
 
- } /* TLS and replay window need synchronized time. */
+ r->transport_stage="clock";
+ if(!actell_clock_ready()){
+ ESP_LOGW("actell.rpc","transport stage=clock");return ESP_ERR_INVALID_STATE;}
+ r->transport_stage="request_identity";
  size_t blen=strlen(body);
 if(blen>ACTELL_REQUEST_MAX)return ESP_ERR_INVALID_SIZE;
 
@@ -57,6 +57,56 @@ if(blen>ACTELL_REQUEST_MAX)return ESP_ERR_INVALID_SIZE;
 unsigned char random[16],mac[32];
 size_t maclen=0;
 
+ char hostname[256];
+ const char *begin=c->origin+8,*colon=strrchr(begin,':');
+ size_t host_len=colon?(size_t)(colon-begin):strlen(begin);
+ if(!host_len||host_len>=sizeof(hostname))return ESP_ERR_INVALID_ARG;
+ memcpy(hostname,begin,host_len);hostname[host_len]=0;
+ int port=443;
+ if(colon){char*end;long parsed=strtol(colon+1,&end,10);
+ if(!colon[1]||*end||parsed<1||parsed>65535)return ESP_ERR_INVALID_ARG;
+ port=(int)parsed;}
+ /* Discovery is only a locator; the stored SAN hostname and leaf remain trust. */
+ r->transport_stage="discovery";
+ char address[16]={0};
+ bool reused=locator&&locator->address[0]&&!strcmp(locator->origin,c->origin)&&
+     !strcmp(locator->client,c->client)&&!strcmp(locator->fingerprint,c->fingerprint)&&
+     actell_lan_address(inet_addr(locator->address));
+ if(reused)strcpy(address,locator->address);
+ if(locator)locator->address[0]=0; /* Any later failure invalidates this invocation's locator. */
+ if(!reused){
+  actell_candidate *found=calloc(SLAN_CANDIDATES,sizeof(*found));
+  if(!found)return ESP_ERR_NO_MEM;
+  int64_t lookup_started=esp_timer_get_time();
+  unsigned count=0;esp_err_t discovery=actell_lan_discover(found,&count,c);
+  discovery_ms=(esp_timer_get_time()-lookup_started)/1000;
+  if(discovery==ESP_OK&&count)strcpy(address,found[0].address);
+  free(found);
+  if(!address[0]){
+   ESP_LOGW("actell.rpc","transport stage=discovery error=%s",esp_err_to_name(discovery));
+   return ESP_ERR_NOT_FOUND;
+  }
+ }
+ r->transport_stage="interface";
+ struct ifreq iface;if(!actell_lan_interface(&iface))return ESP_ERR_INVALID_STATE;
+ snprintf(url,sizeof(url),"https://%s:%d/v1/rpc",address,port);
+
+ size_t cap=image?ACTELL_IMAGE_MAX:ACTELL_JSON_MAX;
+ actell_buffer received={0};
+
+ int64_t end=esp_timer_get_time()+15000000;
+if(expires<end)end=expires;
+
+ r->transport_stage="deadline";
+ if(esp_timer_get_time()>=end)return ESP_ERR_INVALID_STATE;
+ int timeout_ms=(int)((end-esp_timer_get_time())/1000);
+ if(timeout_ms<1)timeout_ms=1;
+ sink s={r,cap,end,generation,false,NULL};
+ r->transport_stage="request_auth";
+
+ /* Discovery or SNTP may advance wall time. Sample only after readiness and
+  * location lookup, immediately before signing, never before clock sync. */
+ time_t now=time(NULL);
  esp_fill_random(random,sizeof(random));
 snprintf(nonce,sizeof(nonce),"%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",random[0],random[1],random[2],random[3],random[4],random[5],random[6],random[7],random[8],random[9],random[10],random[11],random[12],random[13],random[14],random[15]);
 
@@ -87,69 +137,12 @@ if(!ok)return ESP_FAIL;
 i<32;
 i++)snprintf(signature+2*i,3,"%02x",mac[i]);
 
- char hostname[256];
-strcpy(hostname,c->origin+8);
-char *colon=strrchr(hostname,':');
-int port=443;
-
- if(colon){*colon++=0;
-char*end;
-long n=strtol(colon,&end,10);
-if(*end||n<1||n>65535)return ESP_ERR_INVALID_ARG;
-port=(int)n;
-}
- /* Bonjour is an untrusted locator. Only OOB identity/port selects a candidate;
-    TLS still verifies the independently trusted hostname and leaf anchor. */
- static bool mdns_ready;
-
- if(!mdns_ready){if(mdns_init()!=ESP_OK)return ESP_FAIL;
-mdns_ready=true;
-}
- mdns_result_t *found=NULL;
-char address[16]={0};
-
- esp_err_t discovery=mdns_query_ptr("_actell-muse","_tcp",2000,8,&found);
-
- if(discovery==ESP_OK)for(mdns_result_t *candidate=found;
-candidate&&!address[0];
-candidate=candidate->next){
-  bool match=false;
-for(size_t i=0;
-i<candidate->txt_count;
-i++)if(!strcmp(candidate->txt[i].key,"identity")&&candidate->txt[i].value&&!strcmp(candidate->txt[i].value,c->fingerprint))match=true;
-
-  if(!match||candidate->port!=port)continue;
-
-  for(mdns_ip_addr_t *a=candidate->addr;
-a;
-a=a->next)if(a->addr.type==ESP_IPADDR_TYPE_V4){snprintf(address,sizeof(address),IPSTR,IP2STR(&a->addr.u_addr.ip4));
-break;
-}
- }
- mdns_query_results_free(found);
-
- if(!address[0])return ESP_ERR_NOT_FOUND;
-
- snprintf(url,sizeof(url),"https://%s:%d/v1/rpc",address,port);
-memset(r,0,sizeof(*r));
-
- size_t cap=image?ACTELL_IMAGE_MAX:ACTELL_JSON_MAX;
-r->body=malloc(cap+1);
-if(!r->body)return ESP_ERR_NO_MEM;
-
- int64_t end=esp_timer_get_time()+15000000;
-if(expires<end)end=expires;
-
- sink s={r,cap,end,generation,false};
-
- esp_http_client_config_t config={.url=url,.cert_pem=c->pem,.common_name=hostname,.timeout_ms=15000,.disable_auto_redirect=true,
+ esp_http_client_config_t config={.url=url,.cert_pem=c->pem,.if_name=&iface,.common_name=hostname,.timeout_ms=timeout_ms,.disable_auto_redirect=true,
    .event_handler=receive,.user_data=&s,.keep_alive_enable=false,.skip_cert_common_name_check=false};
 
+ r->transport_stage="client_init";
  esp_http_client_handle_t http=esp_http_client_init(&config);
-if(!http){free(r->body);
-r->body=NULL;
-return ESP_ERR_NO_MEM;
-}
+if(!http)return ESP_ERR_NO_MEM;
  esp_http_client_set_header(http,"Host",c->origin+8);
 esp_http_client_set_method(http,HTTP_METHOD_POST);
 esp_http_client_set_header(http,"Content-Type","application/json");
@@ -162,12 +155,16 @@ esp_http_client_set_header(http,"X-Actell-Signature",signature);
     Each partial write/read is fenced. Already sent bytes cannot be rolled back. */
  esp_err_t e=ESP_FAIL;
 
+ r->transport_stage="tls_connect";
+ int64_t tls_started=esp_timer_get_time();
  if(actell_bridge_current(generation)&&esp_timer_get_time()<end)e=esp_http_client_open(http,blen);
+ tls_ms=(esp_timer_get_time()-tls_started)/1000;
 
  size_t sent=0;
 
  while(e==ESP_OK&&sent<blen){
-  if(!actell_bridge_current(generation)||esp_timer_get_time()>end){e=ESP_FAIL;
+  r->transport_stage="send_request";
+  if(!actell_bridge_current(generation)||esp_timer_get_time()>end){r->transport_stage="session_or_deadline";e=ESP_FAIL;
 break;
 }
   size_t chunk=blen-sent;
@@ -180,36 +177,59 @@ break;
 
  }
  int status=0;
+ int64_t content=-1;
 
- if(e==ESP_OK){int64_t content=esp_http_client_fetch_headers(http);
-status=esp_http_client_get_status_code(http);
-if(content<0||content>(int64_t)cap||status!=200)e=ESP_FAIL;
+ if(e==ESP_OK){r->transport_stage="read_headers";content=esp_http_client_fetch_headers(http);r->expected_bytes=content;
+status=esp_http_client_get_status_code(http);r->http_status=status;
+if(content<0||status!=200)e=ESP_FAIL;
+else if(content>(int64_t)cap)e=ESP_ERR_INVALID_SIZE;
+else {
+    r->transport_stage="allocate_body";
+    actell_buffer_result allocated=actell_buffer_init(&received,cap,(size_t)content);
+    if(allocated!=ACTELL_BUFFER_OK)e=allocated==ACTELL_BUFFER_LIMIT?ESP_ERR_INVALID_SIZE:ESP_ERR_NO_MEM;
 }
+}
+ body_started=esp_timer_get_time();
  while(e==ESP_OK){
-  if(!actell_bridge_current(generation)||esp_timer_get_time()>end){e=ESP_FAIL;
+  r->transport_stage="read_body";
+  if(!actell_bridge_current(generation)||esp_timer_get_time()>end){r->transport_stage="session_or_deadline";e=ESP_FAIL;
 break;
 }
   unsigned char block[1024];
-int n=esp_http_client_read(http,(char*)block,sizeof(block));
+int n=esp_http_client_read(http,(char*)block,sizeof(block));r->read_result=n;
 
-  if(n<0||(size_t)n>cap-r->length){e=ESP_FAIL;
+if(n<0){e=ESP_FAIL;
 break;
 }
   if(!n){if(!esp_http_client_is_complete_data_received(http))e=ESP_FAIL;
 break;
 }
-  memcpy(r->body+r->length,block,n);
-r->length+=(size_t)n;
+  actell_buffer_result appended=actell_buffer_append(&received,block,(size_t)n);
+  if(appended!=ACTELL_BUFFER_OK){r->transport_stage="append_body";e=appended==ACTELL_BUFFER_LIMIT?ESP_ERR_INVALID_SIZE:ESP_ERR_NO_MEM;break;}
 
  }
+ int64_t read_ms=(esp_timer_get_time()-body_started)/1000;
+ r->received_bytes=received.length;
+ if(s.failed)r->transport_stage=s.event_failure;
  esp_http_client_close(http);
 esp_http_client_cleanup(http);
 
- if(e!=ESP_OK||s.failed||status!=200){free(r->body);
-r->body=NULL;
-return ESP_FAIL;
+ if(e!=ESP_OK||s.failed||status!=200){
+ ESP_LOGW("actell.rpc","transport stage=https error=%s status=%d content_bytes=%lld received_bytes=%u limit_bytes=%u",
+          esp_err_to_name(e),status,(long long)content,(unsigned)received.length,(unsigned)cap);
+ actell_buffer_free(&received);
+ return e!=ESP_OK?e:ESP_FAIL;
 }
- r->body[r->length]=0;
+ if(locator){
+  strcpy(locator->address,address);strcpy(locator->origin,c->origin);
+  strcpy(locator->client,c->client);strcpy(locator->fingerprint,c->fingerprint);
+ }
+ r->transport_stage=NULL;
+ r->body=received.data;
+ r->length=received.length;
+ ESP_LOGI("actell.rpc","transport response_bytes=%u limit_bytes=%u",(unsigned)r->length,(unsigned)cap);
+ ESP_LOGI("actell.rpc","phase=http_timing image=%d bytes=%u locator_reused=%d discovery_ms=%lld tls_ms=%lld read_ms=%lld total_ms=%lld",
+     image,(unsigned)r->length,reused,(long long)discovery_ms,(long long)tls_ms,(long long)read_ms,(long long)((esp_timer_get_time()-began)/1000));
 return ESP_OK;
 
 }

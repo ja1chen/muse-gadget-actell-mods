@@ -1,10 +1,12 @@
 menu "Independent Actell companion"
 config ACTELL_BRIDGE
     bool "Enable independent LAN Actell command bridge"
+    select MBEDTLS_CERTIFICATE_BUNDLE
     default n
     help
-        Uses Wi-Fi HTTPS directly, never Home Link tunnel. Requires trusted OOB
-        credentials, valid clock and Actell per-device authorization. No listener.
+        Uses Wi-Fi HTTPS directly, never Home Link tunnel. SLAN/1 pairing uses
+        first-use trust on a trusted Wi-Fi LAN, followed by exact certificate
+        pinning and per-client HMAC. Requires a valid clock. No listener.
 config ACTELL_BRIDGE_IMAGES
     bool "Enable experimental small JPEG command results"
     depends on ACTELL_BRIDGE && SPIRAM
