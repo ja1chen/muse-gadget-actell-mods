@@ -5,7 +5,7 @@ import argparse, subprocess as sp, ctypes as C, random, json, os, shlex
 A=Path(__file__).resolve().parents[1]
 p=argparse.ArgumentParser();p.add_argument('--include',type=Path,required=True);p.add_argument('--output',type=Path,required=True);args=p.parse_args()
 V=args.output;V.mkdir(parents=True,exist_ok=True)
-common=shlex.split(os.environ.get('CC','clang'))+['-O2','-DACTELL_AVATAR_TEST','-I'+str(args.include),'-I'+str(A/'include')]
+common=shlex.split(os.environ.get('CC','clang'))+['-O2','-DACTELL_AVATAR_TEST','-DMUSE_AVATAR_ROUNDED_FACE=0','-DMUSE_AVATAR_SHADING=0','-I'+str(args.include),'-I'+str(A/'include')]
 def run(cmd): return sp.run(list(map(str,cmd)),check=True,capture_output=True,text=True)
 # Shared exact v13 reference and staged implementation expose the same API.
 for label,src in [('reference',A/'tests/reference_v13.c'),('new',A/'src/muse_pixel_160.c'),('old',A/'src/muse_pixel.c')]:

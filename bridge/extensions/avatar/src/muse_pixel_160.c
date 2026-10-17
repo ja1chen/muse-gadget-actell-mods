@@ -31,17 +31,31 @@ static bool cache_valid;
 static float brow_closure;
 static float nod_offset;
 static float pitch;
-static uint16_t colors[16];
+/* Independent compile-time fallbacks; V2 off still selects original 64-grid. */
+#ifndef MUSE_AVATAR_ROUNDED_FACE
+#define MUSE_AVATAR_ROUNDED_FACE 1
+#endif
+#ifndef MUSE_AVATAR_SHADING
+#define MUSE_AVATAR_SHADING 1
+#endif
+#ifndef MUSE_AVATAR_DYNAMIC_LIGHT
+#define MUSE_AVATAR_DYNAMIC_LIGHT 0
+#endif
+#define AVATAR_PALETTE_SIZE (MUSE_AVATAR_SHADING ? 48 : 16)
+static uint16_t colors[AVATAR_PALETTE_SIZE];
 static int size = 320;
 enum { BLACK, OUTLINE, SHADE, WHITE, LIGHT, EAR, EARTOP, INK, BLUSH,
        MINT, GOLD, EAR_INNER, EAR_RIM, RED, DIM, BLUE };
 #ifndef AVATAR_ROOT_SHADE
 #define AVATAR_ROOT_SHADE 0xe5daca
 #endif
-static const uint32_t palette[16] = {
+static const uint32_t palette[AVATAR_PALETTE_SIZE] = {
     0x000000,0x343b4c,0xb9bec8,0xe9e6dc,0xfffbef,0x697386,0xfffdf8,
     0x283142,0xf0afa7,0x76d9bd,0xf0bf60,0xefdbc3,AVATAR_ROOT_SHADE,0xf27979,
     0x171e2b,0x91c9f1
+#if MUSE_AVATAR_SHADING
+,0xfffbef,0xfef9ed,0xfdf7ea,0xfbf5e8,0xfaf3e5,0xf9f1e3,0xf8efe0,0xf6edde,0xf5ebdb,0xf4e9d9,0xf3e7d6,0xf2e5d4,0xf0e3d1,0xefe1cf,0xeedfcc,0xedddca,0xebdcc7,0xeadac5,0xe9d8c2,0xe8d6c0,0xe6d4bd,0xe5d2bb,0xe4d0b8,0xe3ceb6,0xe2ccb3,0xe0cab1,0xdfc8ae,0xdec6ac,0xddc4a9,0xdbc2a7,0xdac0a4,0xd9bea2
+#endif
 };
 static void native_pixel(int x,int y,int c){y+=5;if((unsigned)x<W&&(unsigned)y<H)fb[y*W+x]=(uint8_t)c;}
 static void rect(int x,int y,int w,int h,int c){for(int j=(int)lroundf(y*2.5f+nod_offset);j<(int)lroundf((y+h)*2.5f+nod_offset);j++)for(int i=(int)lroundf(x*2.5f);i<(int)lroundf((x+w)*2.5f);i++)native_pixel(i,j,c);}
@@ -82,6 +96,26 @@ static bool head_below(float px,float py,float qx,float qy,float threshold){
  return radius>0 && ax*ax+ay*ay < radius*radius;
 }
 #endif
+/* Local-space, bounded palette lighting: no new timer, cache key or buffer.
+ * Default light is static; geometric movement still changes shaded pixels.
+ * Both exact boundary and certified interior paths use the same fill. */
+static int skin_fill(float px,float py){
+#if MUSE_AVATAR_SHADING
+ float nx=px*(1/48.75f),ny=py*(1/43.30f);
+ float shade=.10f+.18f*nx+.24f*ny+.27f*(nx*nx+ny*ny);
+#if MUSE_AVATAR_DYNAMIC_LIGHT
+ shade+=pitch*.075f*(ny+.45f);
+#endif
+ shade=fminf(1,fmaxf(0,shade));
+ static const uint8_t thresholds[16]={0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5};
+ int hx=(int)(px+160),hy=(int)(py+160);
+ float step=shade*31.0f;int band=(int)step;
+ if(band<31 && step-band>(thresholds[((hy&3)<<2)|(hx&3)]+.5f)*(1/16.0f))band++;
+ return 16+band;
+#else
+ (void)px;(void)py;return LIGHT;
+#endif
+}
 /* Circular ear lobes and softly blended roots; true 160-grid geometry. */
 static void head_and_ears(float cx,float hy){
  if(cache_valid && cx==cache_cx && hy==cache_hy && nod_offset==cache_nod && pitch==cache_pitch){
@@ -91,7 +125,7 @@ static void head_and_ears(float cx,float hy){
  for(int y=0;y<H;y++)for(int x=0;x<W;x++){
  float px=x+.5f-X,py=(y+.5f-Y)/(1-.08f*pitch);
  float lower=fmaxf(0,py/(17.5f*2.5f));
- px/=1-.14f*lower;
+ px/=1-(MUSE_AVATAR_ROUNDED_FACE ? .04f : .14f)*lower;
  float qx=fabsf(px)-(19.5f-16)*2.5f,qy=fabsf(py)-(17.5f-16)*2.5f;
 #if MUSE_AVATAR_EXACT_DISTANCE_PREFILTER
  /* A certified interior pixel cannot become outline after either union.
@@ -100,14 +134,14 @@ static void head_and_ears(float cx,float hy){
  float el2=elx*elx+epy*epy,er2=erx*erx+epy*epy;
  const float inner=5.5f*2.5f-1.81f,outer=5.5f*2.5f+1.76f;
  if(head_below(px,py,qx,qy,-1.81f) || el2<inner*inner || er2<inner*inner){
-  native_pixel(x,y,LIGHT);continue;
+  native_pixel(x,y,skin_fill(px,py));continue;
  }
  if(!head_below(px,py,qx,qy,1.76f) && el2>outer*outer && er2>outer*outer)continue;
 #endif
  float d=hypotf(fmaxf(qx,0),fmaxf(qy,0))+fminf(fmaxf(qx,qy),0)-16*2.5f;
  if(py>0)d=(hypotf(px/(19.5f*2.5f),py/(17.32f*2.5f))-1)*(17.32f*2.5f);
  for(int side=-1;side<=1;side+=2){float e=hypotf(px-side*14*2.5f,py+15*2.5f)-5.5f*2.5f;d=smooth_union(d,e,3.5f);}
- if(d<=0)native_pixel(x,y,d< -1.8f?LIGHT:OUTLINE);
+ if(d<=0)native_pixel(x,y,d< -1.8f?skin_fill(px,py):OUTLINE);
  }
  for(int side=-1;side<=1;side+=2){
  float ex=cx+side*14,ey=hy-15;
@@ -160,7 +194,7 @@ void muse_pixel_render(const muse_pose_t *p) {
     /* Phone props never obscure boot, shutdown, errors or active conversation. */
     if(m!=MUSE_MODE_IDLE && m!=MUSE_MODE_THINKING) action=ACTELL_AVATAR_NONE;
     float fade=m==MUSE_MODE_OFF?clamp(1.0f-mt/1.3f):1.0f;
-    for(int i=0;i<16;i++) {
+    for(int i=0;i<AVATAR_PALETTE_SIZE;i++) {
         unsigned r=(unsigned)(((palette[i]>>16)&255)*fade),g=(unsigned)(((palette[i]>>8)&255)*fade),b=(unsigned)((palette[i]&255)*fade);
         colors[i]=(uint16_t)(((r>>3)<<11)|((g>>2)<<5)|(b>>3));
     }

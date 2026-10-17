@@ -2,7 +2,9 @@
 
 ## 实现与边界
 
-本次接入 `Actell-Muse-v13-Listening-Performance-Fix` 的渲染器增量，来源及前后 SHA-256 记录在 [source manifest](../bridge/extensions/avatar/source-manifest.json)。原版 v13 参考实现仍保存在 `tests/reference_v13.c`。权威源码位于 `bridge/extensions/avatar/src/`；SDK 暂存副本不能代替工程源码。
+当前圆润着色版继续保留下述预筛机制；本文旧资源/真机记录对应着色接入前的版本，当前边界见 [角色说明](../bridge/extensions/avatar/README.md#rounded-face-and-static-shading)。
+
+此前接入 `Actell-Muse-v13-Listening-Performance-Fix` 的渲染器增量，来源及前后 SHA-256 记录在 [source manifest](../bridge/extensions/avatar/source-manifest.json)。原版 v13 参考实现仍保存在 `tests/reference_v13.c`。权威源码位于 `bridge/extensions/avatar/src/`；SDK 暂存副本不能代替工程源码。
 
 点头期间精确姿态变化仍会重建头部缓存。优化遍历原 160×160 网格，先用平方距离判定确定的内部与外部，只有边界带执行原 `hypotf` 和平滑并集。一次并集最多降低距离 0.875，两耳顺序并集最多降低 1.75；阈值 -1.81/1.76 保留浮点余量。不改变缓存键、点头节奏/幅度、眼睛、耳部装饰、蓝点、手机动作、状态优先级、按钮和布局，也不新增常驻缓存、BSS 或堆分配。自动变量和目标栈峰值仍需测量。
 
@@ -39,7 +41,7 @@ python3 bridge/extensions/muse-fonts/tools/check-stage.py --with-avatar --with-t
 
 ```sh
 idf.py -C local/build/sdk-copy/esp32 \
-  -B "$PWD/local/build/avatar-v13/v13" \
+  -B "$PWD/local/build/avatar-v13/v13-shaded" \
   -DCMAKE_C_FLAGS=-DMUSE_AVATAR_EXACT_DISTANCE_PREFILTER=0 reconfigure build
 ```
 

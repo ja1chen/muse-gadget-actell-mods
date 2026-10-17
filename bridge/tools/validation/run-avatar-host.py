@@ -53,14 +53,16 @@ with tempfile.TemporaryDirectory(prefix='actell-avatar-host-', dir=temporary_roo
         '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-g',
         '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
         '-DACTELL_AVATAR_TEST', '-I' + str(AVATAR / 'include'), '-I' + str(component)]
-    for branch in (0, 1):
+    for branch, flags, variant in [(0, [], 'legacy'), (1, [], 'shaded'),
+                                    (1, ['-DMUSE_AVATAR_SHADING=0'], 'flat'),
+                                    (1, ['-DMUSE_AVATAR_DYNAMIC_LIGHT=1'], 'dynamic')]:
         for name, sources in {
             'source_dispatch': [AVATAR / 'src/muse_pixel_dispatch.c'],
             'staged_override': [staged],
         }.items():
-            label = f'{name}_v{branch}'
+            label = f'{name}_{variant}'
             binary = temp / label
-            subprocess.run(common + [f'-DCONFIG_MUSE_AVATAR_V2={branch}', *map(str, sources),
+            subprocess.run(common + [*flags, f'-DCONFIG_MUSE_AVATAR_V2={branch}', *map(str, sources),
                            str(AVATAR / 'tests/host_test.c'), '-lm', '-o', str(binary)], check=True)
             tested = subprocess.run([str(binary)], check=True, text=True, capture_output=True,
                                     env={**os.environ, 'ASAN_OPTIONS': 'detect_leaks=0'})
@@ -77,6 +79,9 @@ with tempfile.TemporaryDirectory(prefix='actell-avatar-host-', dir=temporary_roo
             '-DESP_PLATFORM', '-I' + str(fake), '-I' + str(AVATAR / 'tests/esp_fakes'), '-I' + str(component),
             '-c', str(staged), '-o', str(temp / f'esp-{branch}.o')], check=True)
     subprocess.run([sys.executable, str(AVATAR / 'tools/check-v13.py'), '--include', str(component), '--output', str(temp)], check=True)
+    shaded_output = ROOT / 'local/validation/avatar-shaded'
+    subprocess.run([sys.executable,str(AVATAR/'tools/check-shaded.py'),'--include',str(component),'--output',str(shaded_output)],check=True)
+    report['shaded'] = json.loads((shaded_output/'shaded.json').read_text())
     report['pixels'] = json.loads((temp / 'pixel-report.json').read_text())
     performance = ROOT / 'local/validation/avatar-listening'
     subprocess.run([sys.executable, str(AVATAR / 'tools/check-listening-performance.py'),
