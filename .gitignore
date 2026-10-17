@@ -64,6 +64,7 @@ identity.plist
 demo-screen.png
 sdkconfig
 sdkconfig.old
+.actell-avatar-v2-stage.json
 
 # Legacy output locations must never return to the shared tree.
 /local-validation/

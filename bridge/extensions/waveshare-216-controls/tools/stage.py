@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 import tempfile
 
@@ -12,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[4]
 EXT = Path(__file__).resolve().parents[1]
 PATCH = ROOT / 'bridge/patches/muse-gadget-sdk/waveshare-216-controls.patch'
 CAPTION = ROOT / 'bridge/patches/muse-gadget-sdk/caption-font.patch'
+AVATAR = ROOT / 'bridge/patches/muse-gadget-sdk/avatar.patch'
 MANIFEST = EXT / 'manifest.json'
 HEADER = Path('esp32/components/muse/boards/waveshare_216_controls.h')
 
@@ -41,19 +43,23 @@ def main():
     touched = paths(PATCH)
     before = {str(f): hashlib.sha256((sdk / f).read_bytes()).hexdigest() for f in touched}
     # Compare whole source files, never guess from a matching patch hunk. The
-    # caption variant is explicitly supported; all other patches touch disjoint
-    # files. No config, generated header, log or firmware is inspected.
+    # Avatar and caption variants are reconstructed from authoritative sources;
+    # all other patches touch disjoint files. No private configuration is read.
     temp_root = ROOT / 'local/build/tmp'
     temp_root.mkdir(parents=True, exist_ok=True)
     matched = None
     with tempfile.TemporaryDirectory(prefix='controls-stage-', dir=temp_root) as d:
-        temp = Path(d)
         with tarfile.open(archive) as tar:
-            originals = {f: tar.extractfile(str(f)).read() for f in set(touched + paths(CAPTION))}
-        for caption in (False, True):
+            originals = {f: tar.extractfile(str(f)).read() for f in set(touched + paths(CAPTION) + paths(AVATAR))}
+        for avatar, caption in ((False, False), (False, True), (True, False), (True, True)):
+            temp = Path(d) / f'avatar-{int(avatar)}-caption-{int(caption)}'
             for f, data in originals.items():
                 (temp / f).parent.mkdir(parents=True, exist_ok=True)
                 (temp / f).write_bytes(data)
+            if avatar:
+                subprocess.run([sys.executable, str(ROOT / 'bridge/extensions/avatar/tools/stage.py'),
+                                '--sdk-root', str(temp)], check=True,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if caption:
                 git_apply(temp, CAPTION)
             raw = {f: (temp / f).read_bytes() for f in touched}

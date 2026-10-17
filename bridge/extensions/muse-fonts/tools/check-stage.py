@@ -17,12 +17,15 @@ EXT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--with-tts', action='store_true', help='also stage and verify the optional TTS extension')
+    parser.add_argument('--with-avatar', action='store_true', help='stage v13 before fonts and verify combined UI')
     args = parser.parse_args()
     archive = ROOT / 'local/upstream/archives/muse-gadget-sdk-812c46f.tar.gz'
     assert hashlib.sha256(archive.read_bytes()).hexdigest() == '0a7548404b4aa25ad0cc3ad0f9fee1ad3a3245a03a14b02293da3a83bde69359'
     patches = [ROOT / 'bridge/patches/muse-gadget-sdk' / name for name in ['headless.patch', 'actell-hook.patch', 'caption-font.patch']]
     if args.with_tts:
         patches.append(ROOT / 'bridge/patches/muse-gadget-sdk/doubao-tts.patch')
+    if args.with_avatar:
+        patches.append(ROOT / 'bridge/patches/muse-gadget-sdk/avatar.patch')
     names = set()
     for patch in patches:
         names.update(re.findall(r'^--- a/(.+)$', patch.read_text(), re.M))
@@ -38,6 +41,17 @@ def main():
         for patch in patches[:2]:
             subprocess.run(['git', 'apply', '--check', str(patch)], cwd=sdk, check=True)
             subprocess.run(['git', 'apply', str(patch)], cwd=sdk, check=True)
+        if args.with_avatar:
+            subprocess.run([sys.executable, str(ROOT / 'bridge/extensions/avatar/tools/stage.py'),
+                            '--sdk-root', str(sdk)], check=True)
+            # A valid avatar journal must not bless later, unrelated UI changes.
+            ui = sdk / 'esp32/components/muse/muse_ui.c'
+            installed = ui.read_bytes()
+            ui.write_bytes(installed + b'\n/* unrelated change */\n')
+            rejected = subprocess.run([sys.executable, str(EXT / 'tools/stage.py'), str(sdk), '--check'],
+                                      capture_output=True)
+            assert rejected.returncode and not (sdk / 'esp32/components/actell_fonts').exists()
+            ui.write_bytes(installed)
         subprocess.run([sys.executable, str(EXT / 'tools/stage.py'), str(sdk), '--check'], check=True)
         subprocess.run([sys.executable, str(EXT / 'tools/stage.py'), str(sdk)], check=True)
         target = sdk / 'esp32/components/actell_fonts'
@@ -46,6 +60,11 @@ def main():
             assert source.read_bytes() == (target / source.relative_to(EXT)).read_bytes()
         check = subprocess.run([sys.executable, str(EXT / 'tools/stage.py'), str(sdk)], capture_output=True)
         assert check.returncode != 0
+        if args.with_avatar:
+            ui = (sdk / 'esp32/components/muse/muse_ui.c').read_text()
+            assert 'l->px = MUSE_LAYOUT_PX * cell;' in ui
+            assert 'heard_lines = 2' in ui and 'actell_caption_set_page' in ui
+            assert 'static lv_area_t r[MUSE_PX_H]' in ui
         if args.with_tts:
             tts = ROOT / 'bridge/extensions/doubao-tts'
             for extra in [['--check'], []]:
@@ -63,8 +82,9 @@ def main():
             check = subprocess.run([sys.executable, str(tts / 'tools/stage.py'), str(sdk)], capture_output=True)
             assert check.returncode != 0
     report = {'fixed_archive_verified':True, 'ordered_patches_apply':True, 'staged_files_equal_source':True,
-              'duplicate_staging_rejected':True, 'files':len(files), 'tts_staged':args.with_tts}
-    output = ROOT / 'local/validation/caption-fonts' / ('staging-with-tts.json' if args.with_tts else 'staging.json')
+              'duplicate_staging_rejected':True, 'files':len(files), 'tts_staged':args.with_tts,
+              'avatar_staged':args.with_avatar}
+    output = ROOT / 'local/validation/caption-fonts' / ('staging' + ('-avatar' if args.with_avatar else '') + ('-with-tts' if args.with_tts else '') + '.json')
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report))

@@ -9,7 +9,8 @@
     "patch_directory": "bridge/patches/muse-gadget-sdk",
     "optional_caption_patch": "bridge/patches/muse-gadget-sdk/caption-font.patch",
     "bundled_meaning": "Full upstream source is excluded from this Git repository; a local ignored archive may be present.",
-    "optional_controls_patch": "bridge/patches/muse-gadget-sdk/waveshare-216-controls.patch"
+    "optional_controls_patch": "bridge/patches/muse-gadget-sdk/waveshare-216-controls.patch",
+    "optional_avatar_patch": "bridge/patches/muse-gadget-sdk/avatar.patch"
   },
   "target_board": "Waveshare ESP32-S3-Touch-AMOLED-2.16",
   "real_hardware_verified": false,
