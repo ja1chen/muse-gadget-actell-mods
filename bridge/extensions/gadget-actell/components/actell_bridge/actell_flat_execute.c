@@ -42,12 +42,23 @@ static cJSON *remote_failure(const actell_flat_record *r,cJSON *reply,bool call_
  cJSON_Delete(reply);return out;
 }
 
-static void close_run(const actell_flat_executor *e,const actell_flat_record *r,cJSON *out){
+static unsigned negotiated_wait(const cJSON *capability,const char *key,unsigned limit){
+ const cJSON *v=cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(capability,"performance"),key);
+ if(!cJSON_IsNumber(v)||!isfinite(v->valuedouble)||v->valuedouble<1||v->valuedouble>60000||floor(v->valuedouble)!=v->valuedouble)return 0;
+ return v->valuedouble<limit?(unsigned)v->valuedouble:limit;
+}
+static unsigned remaining_wait(const actell_flat_executor *e,unsigned preferred){
+ long long remaining=e->remaining_ms(e->context)-250;
+ return remaining<=0?0:remaining<preferred?(unsigned)remaining:preferred;
+}
+static void close_run(const actell_flat_executor *e,const actell_flat_record *r,cJSON *out,unsigned release_wait_ms){
  /* Cancellation acknowledgement is not proof of completed owner cleanup. */
  bool closed=false;
  unsigned polls=0;
  if(available(e)){
-  cJSON *c=request(e,"runs.cancel",params(r,false));
+  cJSON *p=params(r,false);unsigned wait=remaining_wait(e,release_wait_ms);
+  if(wait)cJSON_AddNumberToObject(p,"wait_ms",wait);
+  cJSON *c=request(e,"runs.cancel",p);
   for(;;){
    const cJSON *payload=cJSON_GetObjectItemCaseSensitive(c,"payload"),*released=cJSON_GetObjectItemCaseSensitive(payload,"execution_released");
    const char *run=word(payload,"run_id");
@@ -62,8 +73,8 @@ static void close_run(const actell_flat_executor *e,const actell_flat_record *r,
 }
 /* Only this invocation's confirmed run may be released. Historical status
  * reads and rejected/mismatched run admission never acquire ownership. */
-static cJSON *finish(const actell_flat_executor *e,const actell_flat_record *r,bool owned,cJSON *out){
- if(owned)close_run(e,r,out);
+static cJSON *finish(const actell_flat_executor *e,const actell_flat_record *r,bool owned,cJSON *out,unsigned release_wait_ms){
+ if(owned)close_run(e,r,out,release_wait_ms);
  return out;
 }
 static bool same(const cJSON *j,const char *k,const char *value){const char *s=word(j,k);return s&&!strcmp(s,value);}
@@ -117,11 +128,15 @@ cJSON *actell_flat_execute(const char *command,const cJSON *a,const char *invoke
   if(admission<0||admission>1||!record_valid(&record))return result(false,"failed","not_sent","not_applicable",NULL,"journal_unavailable");
  }
  if(!available(e))return unknown(&record,"deadline_exceeded");
- cJSON *reply=NULL;bool owned=false;
+ cJSON *reply=NULL;bool owned=false;unsigned call_wait_ms=0,release_wait_ms=0;
  if(admission==1){
   reply=request(e,"capabilities",cJSON_CreateObject());
   if(!ok(reply))return remote_failure(&record,reply,false,"capability_unavailable");
-  bool compatible=actell_flat_capability(cJSON_GetObjectItemCaseSensitive(reply,"payload"));cJSON_Delete(reply);
+  const cJSON *capability=cJSON_GetObjectItemCaseSensitive(reply,"payload");
+  bool compatible=actell_flat_capability(capability);
+  call_wait_ms=negotiated_wait(capability,"tools_call_wait_ms_max",1500);
+  release_wait_ms=negotiated_wait(capability,"runs_cancel_wait_ms_max",500);
+  cJSON_Delete(reply);
   if(!compatible)return result(false,"failed","not_sent","not_applicable",&record,"incompatible_capability");
   if(!available(e))return result(false,"failed","not_sent","not_applicable",&record,"deadline_exceeded");
   cJSON *p=params(&record,false);cJSON_AddNumberToObject(p,"deadline_ms",record.deadline_ms);cJSON_AddStringToObject(p,"input_contract",ACTELL_NORMALIZED_INPUT);cJSON_AddStringToObject(p,"image_contract","thumbnail-v2");
@@ -136,29 +151,31 @@ cJSON *actell_flat_execute(const char *command,const cJSON *a,const char *invoke
     owned=ok(check)&&same(cJSON_GetObjectItemCaseSensitive(check,"payload"),"run_id",record.run_id);
     cJSON_Delete(check);
    }
-   return finish(e,&record,owned,remote_failure(&record,reply,false,"run_open_unconfirmed"));
+   return finish(e,&record,owned,remote_failure(&record,reply,false,"run_open_unconfirmed"),release_wait_ms);
   }
   const cJSON *run=cJSON_GetObjectItemCaseSensitive(reply,"payload"),*deadline=cJSON_GetObjectItemCaseSensitive(run,"deadline_ms");
   owned=same(run,"run_id",record.run_id);
   bool valid=owned&&same(run,"state","open")&&cJSON_IsNumber(deadline)&&deadline->valuedouble==record.deadline_ms;
   cJSON_Delete(reply);
-  if(!valid||!available(e))return finish(e,&record,owned,unknown(&record,"run_open_unconfirmed"));
+  if(!valid||!available(e))return finish(e,&record,owned,unknown(&record,"run_open_unconfirmed"),release_wait_ms);
   p=actell_flat_call(command,a,record.run_id,record.call_id,record.deadline_ms);
-  if(!p)return finish(e,&record,owned,unknown(&record,"call_build_failed"));
+  if(!p)return finish(e,&record,owned,unknown(&record,"call_build_failed"),release_wait_ms);
+  unsigned wait=remaining_wait(e,call_wait_ms);
+  if(wait)cJSON_AddNumberToObject(p,"wait_ms",wait);
   reply=request(e,"tools.call",p); /* Exactly one submission, never retried. */
  }else reply=request(e,"calls.get",params(&record,true));
  for(;;){
-  if(!ok(reply))return finish(e,&record,owned,remote_failure(&record,reply,true,"result_unconfirmed"));
+  if(!ok(reply))return finish(e,&record,owned,remote_failure(&record,reply,true,"result_unconfirmed"),release_wait_ms);
   const cJSON *receipt=cJSON_GetObjectItemCaseSensitive(reply,"payload");const char *state=word(receipt,"state");
-  if(!same(receipt,"run_id",record.run_id)||!same(receipt,"call_id",record.call_id)||!state){cJSON_Delete(reply);return finish(e,&record,owned,unknown(&record,"invalid_receipt"));}
+  if(!same(receipt,"run_id",record.run_id)||!same(receipt,"call_id",record.call_id)||!state){cJSON_Delete(reply);return finish(e,&record,owned,unknown(&record,"invalid_receipt"),release_wait_ms);}
   if(!strcmp(state,"queued")||!strcmp(state,"running")||!strcmp(state,"pending_approval")){
    cJSON_Delete(reply);
-   if(query||!available(e)||e->remaining_ms(e->context)<=500)return finish(e,&record,owned,result(true,"pending","may_have_occurred","unavailable",&record,NULL));
-   e->pause(e->context,500);if(!available(e))return finish(e,&record,owned,result(true,"pending","may_have_occurred","unavailable",&record,NULL));
+   if(query||!available(e)||e->remaining_ms(e->context)<=500)return finish(e,&record,owned,result(true,"pending","may_have_occurred","unavailable",&record,NULL),release_wait_ms);
+   e->pause(e->context,500);if(!available(e))return finish(e,&record,owned,result(true,"pending","may_have_occurred","unavailable",&record,NULL),release_wait_ms);
    reply=request(e,"calls.get",params(&record,true));continue;
   }
-  if(!strcmp(state,"unknown")){cJSON_Delete(reply);return finish(e,&record,owned,unknown(&record,"result_unconfirmed"));}
-  if(strcmp(state,"succeeded")&&strcmp(state,"failed")&&strcmp(state,"cancelled")&&strcmp(state,"expired")){cJSON_Delete(reply);return finish(e,&record,owned,unknown(&record,"invalid_receipt"));}
+  if(!strcmp(state,"unknown")){cJSON_Delete(reply);return finish(e,&record,owned,unknown(&record,"result_unconfirmed"),release_wait_ms);}
+  if(strcmp(state,"succeeded")&&strcmp(state,"failed")&&strcmp(state,"cancelled")&&strcmp(state,"expired")){cJSON_Delete(reply);return finish(e,&record,owned,unknown(&record,"invalid_receipt"),release_wait_ms);}
   const cJSON *remote_result=cJSON_GetObjectItemCaseSensitive(receipt,"result");
   bool capture=!strcmp(command,"actell.screenshot")||(query&&cJSON_IsObject(remote_result)&&word(remote_result,"image_contract"));
   cJSON *out;
@@ -168,7 +185,7 @@ cJSON *actell_flat_execute(const char *command,const cJSON *a,const char *invoke
    cJSON *release=NULL;
    if(owned){
     release=result(true,"succeeded","not_applicable","unavailable",&record,NULL);
-    close_run(e,&record,release);owned=false;
+    close_run(e,&record,release,release_wait_ms);owned=false;
    }
    out=screenshot(e,&record,remote_result);
    const cJSON *released=cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(release,"payload"),"run_released");
@@ -185,6 +202,6 @@ cJSON *actell_flat_execute(const char *command,const cJSON *a,const char *invoke
   }
   cJSON_Delete(reply);
   /* Status reads never acquire/release execution ownership. */
-  return finish(e,&record,owned,out);
+  return finish(e,&record,owned,out,release_wait_ms);
  }
 }

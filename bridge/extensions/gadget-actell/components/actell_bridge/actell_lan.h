@@ -22,6 +22,9 @@ esp_err_t actell_lan_discover(actell_candidate out[SLAN_CANDIDATES], unsigned *c
                               const actell_config *pinned);
 bool actell_lan_interface(struct ifreq *iface);
 bool actell_lan_address(uint32_t network_ip);
+bool actell_lan_network(actell_network_stamp *);
+uint32_t actell_lan_epoch(void);
+void actell_lan_network_changed(void);
 bool actell_clock_ready(void);
 struct mbedtls_x509_crt;
 bool actell_verify_self_leaf(const char *,actell_config *,struct mbedtls_x509_crt *);

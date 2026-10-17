@@ -5,9 +5,42 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdatomic.h>
 #ifdef ESP_PLATFORM
 #include "esp_log.h"
+#include "esp_event.h"
+#include "esp_wifi.h"
 #endif
+
+static atomic_uint network_epoch = 1;
+uint32_t actell_lan_epoch(void) { return atomic_load(&network_epoch); }
+void actell_lan_network_changed(void) { atomic_fetch_add(&network_epoch, 1); }
+#ifdef ESP_PLATFORM
+static void network_event(void *arg, esp_event_base_t base, int32_t id, void *data) {
+    (void)arg; (void)data;
+    if ((base == WIFI_EVENT && (id == WIFI_EVENT_STA_START || id == WIFI_EVENT_STA_STOP ||
+         id == WIFI_EVENT_STA_CONNECTED || id == WIFI_EVENT_STA_DISCONNECTED)) ||
+        (base == IP_EVENT && (id == IP_EVENT_STA_GOT_IP || id == IP_EVENT_STA_LOST_IP)))
+        actell_lan_network_changed();
+}
+#endif
+bool actell_lan_network(actell_network_stamp *out) {
+#ifdef ESP_PLATFORM
+    /* Worker-only registration; network generation changes even if DHCP gives
+     * the same address after roaming or disconnect/reconnect. */
+    static bool wifi_events, ip_events;
+    if (!wifi_events) wifi_events = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, network_event, NULL) == ESP_OK;
+    if (!ip_events) ip_events = esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID, network_event, NULL) == ESP_OK;
+    if (!wifi_events || !ip_events) return false;
+#endif
+    uint32_t epoch = actell_lan_epoch();
+    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_ip_info_t info;
+    if (!sta || !esp_netif_is_netif_up(sta) || esp_netif_get_ip_info(sta, &info) != ESP_OK ||
+        !slan_private_ipv4(ntohl(info.ip.addr)) || epoch != actell_lan_epoch()) return false;
+    *out = (actell_network_stamp){epoch, info.ip.addr, info.netmask.addr, info.gw.addr};
+    return true;
+}
 
 bool actell_lan_interface(struct ifreq *iface) {
     esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");

@@ -13,7 +13,8 @@ static unsigned q_count,http_count,action_count,callbacks,pair_polls;
 static int locked;
 static bool reject_send,drop_result,fail_http,fail_hash;
 static unsigned hello_mode,hello_names_checked;
-static bool view_mode;
+static bool view_mode,bad_view_image;
+static unsigned invalidations;
 static unsigned view_captures,view_downloads,view_closes,view_capture_closes;
 static const char *expected_hello_name="Muse gadget";
 static cJSON *last_result;
@@ -70,7 +71,9 @@ esp_err_t actell_http(const actell_config *c,const char *id,const char *body,boo
    strcpy(r->mime,"image/jpeg");strcpy(r->contract,"thumbnail-v2");strcpy(r->request_id,id);
    strcpy(r->image_id,"image-fixture");strcpy(r->generation,"7");strcpy(r->revision,"geometry-fixture");strcpy(r->width,"2");strcpy(r->height,"2");
    unsigned char hash[32];size_t n;assert(psa_hash_compute(PSA_ALG_SHA_256,jpeg,sizeof(jpeg),hash,32,&n)==PSA_SUCCESS);
-   for(unsigned i=0;i<32;i++)snprintf(r->digest+i*2,3,"%02x",hash[i]);cJSON_Delete(envelope);return ESP_OK;
+   for(unsigned i=0;i<32;i++)snprintf(r->digest+i*2,3,"%02x",hash[i]);
+   if(bad_view_image)r->digest[0]='z';
+   cJSON_Delete(envelope);return ESP_OK;
   }
   cJSON *response=cJSON_CreateObject();cJSON_AddNumberToObject(response,"v",1);cJSON_AddStringToObject(response,"request_id",id);cJSON_AddBoolToObject(response,"ok",true);
   cJSON *out=cJSON_AddObjectToObject(response,"result");cJSON_AddStringToObject(out,"run_id",str(p,"run_id"));
@@ -110,6 +113,8 @@ esp_err_t actell_http(const actell_config *c,const char *id,const char *body,boo
  r->body=(unsigned char*)cJSON_PrintUnformatted(reply);r->length=strlen((char*)r->body);strcpy(r->mime,"application/json");r->http_status=200;
  cJSON_Delete(envelope);cJSON_Delete(reply);return ESP_OK;
 }
+void actell_http_invalidate(actell_http_locator *l){(void)l;invalidations++;}
+void actell_http_locator_close(actell_http_locator *l){assert(!l->session);}
 esp_err_t actell_http_with_locator(const actell_config *c,const char *id,const char *body,bool image,uint64_t g,int64_t end,actell_response *r,actell_http_locator *locator){
  (void)locator;return actell_http(c,id,body,image,g,end,r);
 }
@@ -199,6 +204,10 @@ int main(void){
  queued(invoke("single-screen","actell.screenshot","{}"));run_jobs();assert(view_captures==1&&view_downloads==1&&last_result&&cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(last_result,"ok")));
  payload=cJSON_GetObjectItemCaseSensitive(last_result,"payload");assert(!strcmp(str(payload,"coordinate_space"),ACTELL_NORMALIZED_INPUT));
  rejected(invoke("single-screen","actell.screenshot","{}"),"invoke_result_unavailable");assert(view_captures==1);
+ unsigned invalid_before=invalidations;bad_view_image=true;
+ queued(invoke("invalid-image","actell.screenshot","{}"));run_jobs();
+ assert(last_result&&!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(last_result,"ok")));
+ assert(invalidations==invalid_before+1&&view_captures==2&&view_downloads==2);bad_view_image=false;
 #endif
  fail_hash=true;rejected(invoke("no-identity","actell.tap",tap),"unavailable");fail_hash=false;view_mode=false;
  /* Execute the real authenticated hello parser: empty scopes are not unpaired;

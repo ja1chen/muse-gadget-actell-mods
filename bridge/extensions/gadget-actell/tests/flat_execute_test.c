@@ -4,7 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
-typedef struct {unsigned opens,submits,gets,downloads,closes,prepares,pauses,capabilities;long long left;int mode;bool existing,checkpoint,current,capability_no_reply,capability_no_details;const char *capability_code,*capability_message;actell_flat_record record;} fixture;
+typedef struct {unsigned opens,submits,gets,downloads,closes,prepares,pauses,capabilities,run_gets,call_wait,release_wait;double call_limit,release_limit;bool performance,immediate,release_fast;long long left;int mode;bool existing,checkpoint,current,capability_no_reply,capability_no_details;const char *capability_code,*capability_message;actell_flat_record record;} fixture;
 static const char *word(const cJSON *j,const char *k){const cJSON *v=cJSON_GetObjectItemCaseSensitive(j,k);return cJSON_IsString(v)?v->valuestring:NULL;}
 static int prepare(void *ctx,const char *invoke,const char *command,const cJSON *a,actell_flat_record *r){
  fixture *f=ctx;(void)invoke;(void)command;(void)a;f->prepares++;if(f->mode==1)return -1;
@@ -20,6 +20,7 @@ static cJSON *step(void *ctx,const char *op,const cJSON *p){
  cJSON *r=cJSON_CreateObject();cJSON_AddBoolToObject(r,"ok",true);cJSON *out=cJSON_AddObjectToObject(r,"payload");
  if(!strcmp(op,"capabilities")){
   f->capabilities++;
+  if(f->performance){cJSON *perf=cJSON_AddObjectToObject(out,"performance");cJSON_AddNumberToObject(perf,"tools_call_wait_ms_max",f->call_limit);cJSON_AddNumberToObject(perf,"runs_cancel_wait_ms_max",f->release_limit);}
   if(f->capability_no_reply){cJSON_Delete(r);return NULL;}
   if(f->capability_code||f->capability_no_details){
    cJSON_ReplaceItemInObject(r,"ok",cJSON_CreateBool(false));
@@ -35,7 +36,7 @@ static cJSON *step(void *ctx,const char *op,const cJSON *p){
   cJSON_AddStringToObject(out,"run_id",word(p,"run_id"));cJSON_AddStringToObject(out,"state","open");cJSON_AddNumberToObject(out,"deadline_ms",f->record.deadline_ms+(f->mode==15?1:0));
   if(f->mode==16)cJSON_ReplaceItemInObject(out,"run_id",cJSON_CreateString("other-run"));
  }else if(!strcmp(op,"runs.cancel")||!strcmp(op,"runs.get")){
-  if(!strcmp(op,"runs.cancel"))f->closes++;assert(!strcmp(word(p,"run_id"),"run-fixture"));cJSON_AddStringToObject(out,"run_id","run-fixture");cJSON_AddStringToObject(out,"state","cancelled");cJSON_AddBoolToObject(out,"execution_released",f->mode!=8&&f->mode!=23&&!strcmp(op,"runs.get"));
+  if(!strcmp(op,"runs.cancel")){f->closes++;const cJSON *wait=cJSON_GetObjectItemCaseSensitive(p,"wait_ms");if(wait){assert(f->performance);f->release_wait=(unsigned)wait->valueint;assert(f->release_wait<=500&&f->release_wait<=f->left-250);}}else f->run_gets++;assert(!strcmp(word(p,"run_id"),"run-fixture"));cJSON_AddStringToObject(out,"run_id","run-fixture");cJSON_AddStringToObject(out,"state","cancelled");cJSON_AddBoolToObject(out,"execution_released",f->mode!=8&&f->mode!=23&&(!strcmp(op,"runs.get")||(f->release_fast&&f->release_wait)));
  }else if(!strcmp(op,"images.get")){
   /* Real retained-image contract permits download after cancellation. */
   if(!f->existing)assert(f->closes==1);
@@ -44,11 +45,11 @@ static cJSON *step(void *ctx,const char *op,const cJSON *p){
   cJSON_AddStringToObject(out,"format","jpeg-base64");cJSON_AddStringToObject(out,"data_base64","synthetic-pixels");cJSON_AddStringToObject(out,"image_id","image-fixture");cJSON_AddNumberToObject(out,"generation",7);cJSON_AddStringToObject(out,"geometry_revision","geometry-fixture");cJSON_AddNumberToObject(out,"width",410);cJSON_AddNumberToObject(out,"height",502);
  }else{
   bool submission=!strcmp(op,"tools.call");assert(submission||!strcmp(op,"calls.get"));
-  if(submission){f->submits++;assert(!cJSON_GetObjectItemCaseSensitive(p,"observation"));if(f->mode==3){cJSON_Delete(r);return NULL;}}
+  if(submission){const cJSON *wait=cJSON_GetObjectItemCaseSensitive(p,"wait_ms");if(wait){assert(f->performance);f->call_wait=(unsigned)wait->valueint;assert(f->call_wait<=1500&&f->call_wait<=f->left-250);}f->submits++;assert(!cJSON_GetObjectItemCaseSensitive(p,"observation"));if(f->mode==3){cJSON_Delete(r);return NULL;}}
   else f->gets++;
   if((f->mode==10&&submission)||(f->mode==11&&!submission)){cJSON_ReplaceItemInObject(r,"ok",cJSON_CreateBool(false));return r;}
   cJSON_AddStringToObject(out,"run_id",word(p,"run_id"));cJSON_AddStringToObject(out,"call_id",word(p,"call_id"));
-  bool pending=f->mode==4||(submission&&f->mode!=7);
+  bool pending=f->mode==4||(submission&&f->mode!=7&&!f->immediate);
   cJSON_AddStringToObject(out,"state",f->mode==13?"unknown":f->mode==14?"invalid":f->mode==19?"failed":f->mode==7?"cancelled":pending?"queued":"succeeded");
   if(f->mode==19){cJSON *error=cJSON_AddObjectToObject(out,"error");cJSON_AddStringToObject(error,"code","capture_failed");cJSON_AddStringToObject(error,"message","Synthetic capture failed");}
   if(f->mode==12)cJSON_ReplaceItemInObject(out,"call_id",cJSON_CreateString("wrong-call"));
@@ -97,7 +98,25 @@ static void capability_failures(void){
   cJSON_Delete(r);
  }
 }
+static void bounded_waits(void){
+ fixture f=fresh(5);f.performance=f.immediate=f.release_fast=true;f.call_limit=1500;f.release_limit=500;
+ cJSON *r=execute(&f,"actell.screenshot","{}");state(r,"succeeded");
+ assert(f.submits==1&&f.downloads==1&&f.closes==1&&!f.gets&&!f.run_gets&&!f.pauses);
+ assert(f.call_wait==1500&&f.release_wait==500);cJSON_Delete(r);
+ f=fresh(5);f.performance=f.immediate=true;f.call_limit=9999;f.release_limit=9999;
+ r=execute(&f,"actell.screenshot","{}");assert(f.call_wait==1500&&f.release_wait==500&&f.run_gets==1);cJSON_Delete(r);
+ for(unsigned i=0;i<3;i++){
+  f=fresh(5);f.performance=f.immediate=f.release_fast=true;
+  f.call_limit=f.release_limit=i==0?-1:i==1?0.5:60001;
+  r=execute(&f,"actell.screenshot","{}");assert(!f.call_wait&&!f.release_wait&&f.run_gets==1);cJSON_Delete(r);
+ }
+ f=fresh(5);f.performance=f.immediate=f.release_fast=true;f.call_limit=1500;f.release_limit=500;f.left=600;
+ r=execute(&f,"actell.screenshot","{}");assert(f.call_wait==350&&f.release_wait==350);cJSON_Delete(r);
+ f=fresh(4);f.performance=true;f.call_limit=1500;f.release_limit=500;
+ r=execute(&f,"actell.list_apps","{}");state(r,"pending");assert(f.submits==1&&f.gets>0);cJSON_Delete(r);
+}
 int main(void){
+ bounded_waits();
  capability_failures();
  fixture f=fresh(0);cJSON *r=execute(&f,"actell.tap","{\"x\":250,\"y\":750,\"purpose\":\"Open item\"}");state(r,"succeeded");assert(f.opens==1&&f.submits==1&&f.gets==1&&f.closes==1);cJSON_Delete(r);
  /* Same durable record after simulated executor restart reconciles only. */

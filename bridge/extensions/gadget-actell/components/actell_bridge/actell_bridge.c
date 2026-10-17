@@ -23,7 +23,7 @@ extern void noise_ctrl_send_command_result(uint64_t generation,const char *id,cJ
 extern void noise_ctrl_send_image_result(uint64_t generation,const char *id,cJSON *result,actell_image_blob image);
 
 typedef struct {uint64_t generation;
-int64_t expires,queued_at;
+int64_t expires,queued_at,began_at;
 char id[129],op[32];
 unsigned local_action,local_index;
 actell_image_blob *image_out;
@@ -162,8 +162,23 @@ static cJSON *flat_step(void *ctx,const char *op,const cJSON *p){return rpc_step
 static bool flat_current(void *ctx){return actell_bridge_current(((flat_context*)ctx)->work->generation);}
 static long long flat_remaining(void *ctx){return (((flat_context*)ctx)->work->expires-esp_timer_get_time())/1000;}
 static void flat_pause(void *ctx,unsigned ms){(void)ctx;vTaskDelay(pdMS_TO_TICKS(ms));}
-static int flat_prepare(void *ctx,const char *id,const char *command,const cJSON *p,actell_flat_record *r){return actell_flat_store_prepare(&((flat_context*)ctx)->store,id,command,p,r);}
-static bool flat_lookup(void *ctx,const char *id,actell_flat_record *r){return actell_flat_store_lookup(&((flat_context*)ctx)->store,id,r);}
+static void flat_trace(flat_context *ctx,const actell_flat_record *r){
+ if(ctx->work->locator){
+  ctx->work->locator->operation_id[0]=0;
+  if(strlen(r->operation_id)==64)memcpy(ctx->work->locator->operation_id,r->operation_id,65);
+ }
+ ESP_LOGI("actell.rpc","phase=operation_begin operation_id=%s queue_ms=%lld",r->operation_id,(long long)((ctx->work->began_at-ctx->work->queued_at)/1000));
+}
+static int flat_prepare(void *ctx,const char *id,const char *command,const cJSON *p,actell_flat_record *r){
+ int result=actell_flat_store_prepare(&((flat_context*)ctx)->store,id,command,p,r);
+ if(result>=0)flat_trace(ctx,r);
+ return result;
+}
+static bool flat_lookup(void *ctx,const char *id,actell_flat_record *r){
+ bool found=actell_flat_store_lookup(&((flat_context*)ctx)->store,id,r);
+ if(found)flat_trace(ctx,r);
+ return found;
+}
 static cJSON *execute(job*j){
  if(actell_flat_command(j->op)){
   if(!actell_clock_ready())return error("clock_unavailable","Waiting for clock synchronization; no phone action submitted");
@@ -205,6 +220,7 @@ char*body=cJSON_PrintUnformatted(envelope);
 cJSON_Delete(envelope);
 
  actell_response r={0};
+int64_t rpc_started=esp_timer_get_time();
 esp_err_t e=body?actell_http_with_locator(c,j->id,body,!strcmp(j->op,"images.get"),j->generation,j->expires,&r,j->locator):ESP_ERR_NO_MEM;
 
  volatile unsigned char*z=(volatile unsigned char*)c;
@@ -228,7 +244,13 @@ free(body);
 
  cJSON*out=NULL;
 
- if(!strcmp(j->op,"images.get")&&!strcmp(r.mime,"image/jpeg"))out=image_result(&r,j->params,j->id,j->image_out);
+ if(!strcmp(j->op,"images.get")&&!strcmp(r.mime,"image/jpeg")){
+ int64_t validation_started=esp_timer_get_time();
+ out=image_result(&r,j->params,j->id,j->image_out);
+ ESP_LOGI("actell.rpc","phase=image_validation operation_id=%s request_id=%s elapsed_ms=%lld bytes=%u ok=%d",j->locator?j->locator->operation_id:"-",j->id,(long long)((esp_timer_get_time()-validation_started)/1000),(unsigned)r.length,cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(out,"ok")));
+ const char *image_error=str(cJSON_GetObjectItemCaseSensitive(out,"error"),"code");
+ if(image_error&&!strcmp(image_error,"image_invalid"))actell_http_invalidate(j->locator);
+ }
 
  else {
   cJSON*reply=!strncmp(r.mime,"application/json",16)&&(r.mime[16]==0||r.mime[16]==';')&&r.length<=ACTELL_JSON_MAX?parse((char*)r.body):NULL;
@@ -257,7 +279,7 @@ out=cJSON_CreateObject();
 cJSON_AddBoolToObject(out,"ok",cJSON_IsTrue(ok));
 cJSON_AddItemToObject(out,cJSON_IsTrue(ok)?"payload":"error",cJSON_Duplicate(cJSON_IsTrue(ok)?result:cJSON_GetObjectItemCaseSensitive(reply,"error"),true));
 }
-  else out=error(actell_op_mutates(j->op)?"unknown":"protocol_error","Invalid response; do not replay writes");
+  else {actell_http_invalidate(j->locator);out=error(actell_op_mutates(j->op)?"unknown":"protocol_error","Invalid response; do not replay writes");}
 
   cJSON_Delete(reply);
 
@@ -272,6 +294,7 @@ cJSON_AddItemToObject(out,cJSON_IsTrue(ok)?"payload":"error",cJSON_Duplicate(cJS
  ESP_LOGI("actell.rpc","op=%s outcome=%s state=%s kind=%s",j->op,
           cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(out,"ok"))?"ok":"error",safe_state,
           tool&&!strcmp(tool,"list_apps")?"list_apps":"other");
+ ESP_LOGI("actell.rpc","phase=rpc_done operation_id=%s request_id=%s op=%s elapsed_ms=%lld",j->locator?j->locator->operation_id:"-",j->id,j->op,(long long)((esp_timer_get_time()-rpc_started)/1000));
  free(r.body);
 return out;
 
@@ -290,7 +313,7 @@ job*j;
 bool current=j->generation==guard->generation;
 xSemaphoreGive(mutex);
 
-  int64_t began=esp_timer_get_time();
+  int64_t began=esp_timer_get_time();j->began_at=began;
   ESP_LOGI("actell.rpc","phase=worker_begin op=%s wait_ms=%lld current=%d",j->op,
            (long long)((began-j->queued_at)/1000),current);
   xSemaphoreTake(mutex,portMAX_DELAY);
@@ -301,8 +324,13 @@ xSemaphoreGive(mutex);
   actell_http_locator locator={0};j->locator=&locator;
   cJSON*r=!current?error("unknown","Session changed; queued request was not sent"):esp_timer_get_time()>j->expires?error("deadline_exceeded","Request expired in local queue"):execute(j);
 
-  ESP_LOGI("actell.rpc","phase=worker_done op=%s elapsed_ms=%lld result=%d",j->op,
-           (long long)((esp_timer_get_time()-began)/1000),r!=NULL);
+  actell_http_locator_close(&locator);
+  if(image.data){
+   snprintf(image.operation_id,sizeof(image.operation_id),"%s",locator.operation_id);
+   image.invoked_at_us=j->queued_at;image.queued_at_us=esp_timer_get_time();
+  }
+  ESP_LOGI("actell.rpc","phase=worker_done operation_id=%s op=%s elapsed_ms=%lld ok=%d",locator.operation_id,j->op,
+           (long long)((esp_timer_get_time()-began)/1000),cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(r,"ok")));
   /* Exactly one completion attempt. Upstream owns result; disconnected/old-generation
      responses can be dropped by its documented bounded result queue. */
   xSemaphoreTake(mutex,portMAX_DELAY);

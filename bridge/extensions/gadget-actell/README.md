@@ -87,8 +87,8 @@ in official `commands_v2`; no separate model-context injection is required. Read
 [usage skill](../skills/gadget-actell-remote/SKILL.md). The gadget, not the model,
 negotiates capabilities. Native regression executes the actual SDK serializer with
 synthetic identity and optional tools to enforce the 8 KiB budget. Runtime audit
-lines contain only fixed operation/state words and capacity counts, never IDs,
-phone content, parameters, credentials or results.
+lines contain fixed operation/state words, capacity counts and opaque timing correlation
+IDs, never phone content, parameters, credentials or account/device identity.
 
 The advertised interface is nine flat commands: `actell.screenshot`, `actell.tap`,
 `actell.drag`, `actell.home`, `actell.list_apps`, `actell.launch_app`,
@@ -107,14 +107,20 @@ on this path; the receiver still gets one ordinary `link.result` JSON with
 base64 bytes. This reduces resident memory, not wire size; JPEG remains fully
 buffered for identity, dimensions and hash checks before transmission.
 
-Within one outer phone invocation, successful HTTP exchanges can reuse their
-Bonjour network locator. A new invocation discovers again; identity/subnet changes
-or any failed exchange invalidate reuse. Each request still establishes TLS with
-the saved hostname/certificate and signs its own envelope. No failed phone action
-is automatically replayed. Diagnostics report numeric discovery, TLS, body-read
-and total times, plus image upload bytes/chunks/time; they do not log content.
-These optimizations require a new firmware deployment and physical timing/visual
-acceptance; host tests or compilation alone do not establish a speedup.
+Within one outer invocation, complete HTTP responses can reuse the same verified
+TLS connection. The connection closes at invocation end, failure, identity/network
+change or bounded idle/request limits. A thirty-second locator cache also avoids
+repeat discovery across invocations, bound to the saved identity and Wi-Fi epoch.
+Cached connection attempts are capped at two seconds; only failure before any body
+write attempt may fall back once to discovery. Every RPC is freshly signed; failed
+phone operations are never replayed. Peers advertising bounded completion/release
+waits can avoid unnecessary status queries while preserving actual release checks.
+
+[The performance contract](../../../docs/protocol/ACTELL-PERF-1.md) describes limits,
+old-peer fallback and correlated timing through image validation and SDK upload.
+Opaque operation/request IDs and numeric measurements are logged without parameters,
+images, account/device identity or credentials. Platform receipt and LLM timing need
+separate instrumentation; host tests and compilation do not establish a speedup.
 
 The gadget negotiates capabilities and internally manages one run per invocation.
 It submits once, polls original IDs, and closes only its own confirmed terminal run.

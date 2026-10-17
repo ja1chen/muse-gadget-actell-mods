@@ -7,5 +7,5 @@ if(CONFIG_ACTELL_BRIDGE)
     endif()
 endif()
 idf_component_register(SRCS ${srcs} INCLUDE_DIRS "include" PRIV_INCLUDE_DIRS "."
-    REQUIRES espressif__cjson esp_http_client nvs_flash mbedtls esp_timer esp_hw_support mdns lwip esp_netif
+    REQUIRES espressif__cjson esp_http_client nvs_flash mbedtls esp_timer esp_hw_support mdns lwip esp_netif esp_event esp_wifi
     esp_driver_usb_serial_jtag esp_driver_gpio)

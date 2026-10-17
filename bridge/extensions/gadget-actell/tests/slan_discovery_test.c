@@ -23,6 +23,7 @@ esp_err_t esp_netif_get_ip_info(esp_netif_t *p, esp_netif_ip_info_t *out) {
     assert(p == &wifi);
     out->ip.addr = inet_addr("192.168.1.10");
     out->netmask.addr = inet_addr("255.255.255.0");
+    out->gw.addr = inet_addr("192.168.1.1");
     return ESP_OK;
 }
 esp_err_t esp_netif_get_netif_impl_name(esp_netif_t *p, char *out) {
@@ -40,6 +41,11 @@ esp_err_t mdns_query_ptr(const char *type, const char *proto, unsigned timeout, 
 }
 void mdns_query_results_free(mdns_result_t *p) { assert(p == &result); }
 int main(void) {
+    actell_network_stamp net;
+    assert(actell_lan_network(&net) && net.epoch == actell_lan_epoch());
+    actell_lan_network_changed();
+    assert(net.epoch != actell_lan_epoch());
+    assert(actell_lan_network(&net) && net.epoch == actell_lan_epoch());
     ip.addr.type = ESP_IPADDR_TYPE_V4;
     ip.addr.u_addr.ip4.addr = inet_addr("192.168.1.20");
     result = (mdns_result_t){.hostname = "system-iphone",

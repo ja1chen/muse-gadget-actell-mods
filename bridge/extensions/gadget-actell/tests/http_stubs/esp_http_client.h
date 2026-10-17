@@ -25,3 +25,8 @@ int esp_http_client_read(esp_http_client_handle_t,char *,int);
 bool esp_http_client_is_complete_data_received(esp_http_client_handle_t);
 int esp_http_client_close(esp_http_client_handle_t);
 int esp_http_client_cleanup(esp_http_client_handle_t);
+
+int esp_http_client_set_timeout_ms(esp_http_client_handle_t,int);
+esp_err_t esp_http_client_prepare(esp_http_client_handle_t);
+esp_err_t esp_http_client_request_send(esp_http_client_handle_t,int);
+bool esp_http_client_is_persistent_connection(esp_http_client_handle_t);

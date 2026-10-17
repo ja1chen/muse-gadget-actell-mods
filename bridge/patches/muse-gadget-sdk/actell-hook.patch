@@ -21,7 +21,7 @@
  };
  static QueueHandle_t s_result_q = nullptr;
  
-@@ -802,10 +809,19 @@
+@@ -802,10 +809,22 @@
      noise_ctrl_session_generation_t session_generation = 0;
      bool is_registration = false;
      bool is_heartbeat = false;
@@ -36,12 +36,15 @@
  static void clear_pending_json_body(pending_json_body &body) {
      free(body.json);
 +#if CONFIG_ACTELL_BRIDGE
++    if (body.image.data && body.json_offset < body.json_len)
++        ESP_LOGI(TAG, "invoke image phase=upload_aborted operation_id=%s sent_bytes=%u wire_bytes=%u",
++            body.image.operation_id, (unsigned)body.json_offset, (unsigned)body.json_len);
 +    free(body.image.data);
 +#endif
      body = {};
  }
  
-@@ -836,8 +852,20 @@
+@@ -836,8 +855,24 @@
      if (n > CTRL_BODY_CHUNK_MAX - prefix_len) {
          n = CTRL_BODY_CHUNK_MAX - prefix_len;
      }
@@ -54,7 +57,11 @@
 +        data += body.json_offset;
 +#if CONFIG_ACTELL_BRIDGE
 +    if (body.image.data) {
-+        if (!body.started_us) body.started_us = esp_timer_get_time();
++        if (!body.started_us) {
++            body.started_us = esp_timer_get_time();
++            ESP_LOGI(TAG, "invoke image phase=upload_start operation_id=%s queue_ms=%lld",
++                body.image.operation_id, (long long)((body.started_us-body.image.queued_at_us)/1000));
++        }
 +        if (actell_image_stream_read(&body.image_layout, body.json,
 +                body.image.data, body.image.length, body.json_offset,
 +                ws_buf + prefix_len, n) != n) return json_send_status::Failed;
@@ -64,7 +71,7 @@
      if (prefix_len) {
          // Reuse the WS output scratch for just the first chunk. StartOutbound
          // copies the view into svc/env scratch before flush_outbound overwrites
-@@ -849,6 +877,9 @@
+@@ -849,6 +884,9 @@
          ws_buf[1] = static_cast<uint8_t>((le_len >> 8) & 0xff);
          ws_buf[2] = static_cast<uint8_t>((le_len >> 16) & 0xff);
          ws_buf[3] = static_cast<uint8_t>((le_len >> 24) & 0xff);
@@ -74,7 +81,7 @@
          memcpy(ws_buf + prefix_len, data, n);
          data = ws_buf;
      }
-@@ -869,6 +900,9 @@
+@@ -869,6 +907,9 @@
      }
      if (!flush_outbound(tls, session, ws_buf)) return json_send_status::Failed;
  
@@ -84,7 +91,7 @@
      body.json_offset += n;
      body.prefix_sent = true;
      return last ? json_send_status::Complete : json_send_status::Pending;
-@@ -1431,6 +1465,9 @@
+@@ -1431,6 +1472,9 @@
                      ota_required, ota_optional);
      }
  
@@ -94,7 +101,7 @@
      cJSON_AddItemToObject(params, "commands_v2", commands);
      cJSON_AddItemToObject(root, "params", params);
  
-@@ -1460,22 +1497,46 @@
+@@ -1460,22 +1504,46 @@
  
  // Queued result from OTA or other async operations.
  static void queue_result(noise_ctrl_session_generation_t session_generation,
@@ -144,7 +151,7 @@
          ESP_LOGW(TAG, "result queue full, dropping result for %s", request_id);
      }
  }
-@@ -1619,6 +1680,19 @@
+@@ -1619,6 +1687,19 @@
          cJSON_Delete(root);
          return;
      }
@@ -164,7 +171,7 @@
  
      ESP_LOGI(TAG, "invoke request: command=%s", command);
  
-@@ -1691,7 +1765,18 @@
+@@ -1691,7 +1772,18 @@
  
  // ---- result → JSON envelope -------------------------------------------------
  
@@ -184,7 +191,7 @@
      cJSON *root = cJSON_CreateObject();
      auto fail = [&]() -> char * {
          cJSON_Delete(root);
-@@ -1733,6 +1818,21 @@
+@@ -1733,6 +1825,21 @@
      cJSON_Delete(result);
      char *json = cJSON_PrintUnformatted(root);
      cJSON_Delete(root);
@@ -206,7 +213,7 @@
      return json;
  }
  
-@@ -1953,6 +2053,9 @@
+@@ -1953,6 +2060,9 @@
      session_generation = noise_ctrl_next_session_generation(
          s_session_generation_counter);
      s_session_generation_counter = session_generation;
@@ -216,7 +223,7 @@
  
      // 4. Open POST /link-control stream
      {
-@@ -1980,6 +2083,9 @@
+@@ -1980,6 +2090,9 @@
      while (xQueueReceive(s_result_q, &stale, 0) == pdTRUE) {
          free(stale.request_id);
          cJSON_Delete(stale.result);
@@ -226,7 +233,7 @@
      }
  
      req_end_all();
-@@ -2161,6 +2267,18 @@
+@@ -2161,6 +2274,18 @@
                  control_tx.is_heartbeat = true;
              }
          }
@@ -245,7 +252,7 @@
          pending_result pr;
          while (!control_tx.json && noise_tx_has_dma_headroom(nullptr)
                 && xQueueReceive(s_result_q, &pr, 0) == pdTRUE) {
-@@ -2169,15 +2287,65 @@
+@@ -2169,15 +2294,65 @@
                  ESP_LOGW(TAG, "dropping invoke result from stale control session");
                  free(pr.request_id);
                  cJSON_Delete(pr.result);
@@ -313,20 +320,21 @@
          }
          if (control_tx.json) {
              size_t old_offset = control_tx.json_offset;
-@@ -2198,6 +2366,12 @@
+@@ -2198,6 +2373,13 @@
                  last_activity_us = esp_timer_get_time();
              }
              if (status == json_send_status::Complete) {
 +#if CONFIG_ACTELL_BRIDGE
 +                if (control_tx.image.data) ESP_LOGI(TAG,
-+                    "invoke image phase=sent jpeg_bytes=%u wire_bytes=%u chunks=%u elapsed_ms=%lld",
-+                    (unsigned)control_tx.image.length, (unsigned)control_tx.json_len,
-+                    control_tx.chunks, (long long)((esp_timer_get_time()-control_tx.started_us)/1000));
++                    "invoke image phase=upload_end operation_id=%s jpeg_bytes=%u wire_bytes=%u chunks=%u elapsed_ms=%lld since_invoke_ms=%lld",
++                    control_tx.image.operation_id, (unsigned)control_tx.image.length, (unsigned)control_tx.json_len,
++                    control_tx.chunks, (long long)((esp_timer_get_time()-control_tx.started_us)/1000),
++                    (long long)((esp_timer_get_time()-control_tx.image.invoked_at_us)/1000));
 +#endif
                  if (control_tx.is_heartbeat) {
                      heartbeat_sent = true;
                      last_heartbeat_us = esp_timer_get_time();
-@@ -2295,6 +2469,9 @@
+@@ -2295,6 +2477,9 @@
      }  // end event loop scope
  
  cleanup:
@@ -336,7 +344,7 @@
      clear_pending_json_body(control_tx);
      free(ws_buf);
      free(identity.body);
-@@ -2432,6 +2609,9 @@
+@@ -2432,6 +2617,9 @@
          while (xQueueReceive(s_result_q, &stale, 0) == pdTRUE) {
              free(stale.request_id);
              cJSON_Delete(stale.result);
@@ -346,7 +354,7 @@
          }
      }
      xSemaphoreGive(s_connect_mutex);
-@@ -2454,6 +2634,14 @@
+@@ -2454,6 +2642,14 @@
      }
      queue_result(session_generation, request_id, result);
  }

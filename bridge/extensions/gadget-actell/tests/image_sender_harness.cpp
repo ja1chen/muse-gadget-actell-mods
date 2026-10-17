@@ -25,6 +25,7 @@ static int64_t esp_timer_get_time(){static int64_t n=1;return n++;}
 static const char *TAG="synthetic";
 static void log_stub(const char *,const char *,...){ }
 #define ESP_LOGE log_stub
+#define ESP_LOGI log_stub
 struct Status {const char *str(){return "synthetic";}};
 struct SendStatus {bool ok(){return true;} Status status(){return {};}};
 struct ClientSession {

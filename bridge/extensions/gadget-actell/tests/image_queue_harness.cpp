@@ -32,7 +32,8 @@ static int xQueueSend(void *,const void *item,unsigned){
 static void submit(uint64_t generation,const char *id){
  cJSON *result=(cJSON*)malloc(sizeof(cJSON));assert(result);
  tracked_image=(unsigned char*)malloc(133150);assert(tracked_image);
- queue_result(generation,id,result,{tracked_image,133150});
+ actell_image_blob image{};image.data=tracked_image;image.length=133150;
+ queue_result(generation,id,result,image);
 }
 int main(){
  submit(0,"synthetic");assert(deleted==1&&image_freed==1);
