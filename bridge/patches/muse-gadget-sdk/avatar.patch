@@ -1,0 +1,115 @@
+--- a/esp32/components/muse/muse_pixel.h
++++ b/esp32/components/muse/muse_pixel.h
+@@ -29,8 +29,18 @@
+  * nearest-neighbour blocks so the pixels stay chunky.
+  */
+ 
++#ifdef ESP_PLATFORM
++#include "sdkconfig.h"
++#endif
++/* ACTELL_AVATAR_V2: source grid and UI layout are intentionally independent. */
++#define MUSE_LAYOUT_PX 64
++#if defined(CONFIG_MUSE_AVATAR_V2) && CONFIG_MUSE_AVATAR_V2
++#define MUSE_PX_W 160
++#define MUSE_PX_H 160
++#else
+ #define MUSE_PX_W 64
+ #define MUSE_PX_H 64
++#endif
+ 
+ typedef struct {
+     muse_mode_t mode;
+--- a/esp32/components/muse/muse_ui.c
++++ b/esp32/components/muse/muse_ui.c
+@@ -315,12 +315,16 @@
+ 
+ static void invalidate_muse(void)
+ {
+-    if (!s_cells) {
++    if (!s_cells || (int)s_muse_src.header.w < MUSE_PX_W) {
+         lv_obj_invalidate(s_canvas);
+         return;
+     }
+     int size = (int)s_muse_src.header.w;
+-    lv_area_t r[MUSE_PX_H];   /* in cells */
++#if defined(CONFIG_MUSE_AVATAR_V2) && CONFIG_MUSE_AVATAR_V2
++    static lv_area_t r[MUSE_PX_H];   /* UI thread only; keep native-grid scratch off task stack. */
++#else
++    lv_area_t r[MUSE_PX_H];   /* legacy stack layout */
++#endif
+     int n = 0;
+     for (int cy = 0; cy < MUSE_PX_H; cy++) {
+         int32_t y = cell_px(cy, size);
+@@ -706,9 +710,9 @@
+     int pitch = lv_font_get_line_height(font) + CAPTION_LINE_SPACE;
+ 
+     answer_layout_t *l = &s_answers[ANSWER_HEARD];
+-    int cell = s_canvas_px / MUSE_PX_W - 1;
++    int cell = s_canvas_px / MUSE_LAYOUT_PX - 1;
+     cell = cell > MINI_CELL_PX ? cell : MINI_CELL_PX;
+-    l->px = MUSE_PX_W * cell;
++    l->px = MUSE_LAYOUT_PX * cell;
+     l->y = s_big_y;
+     l->align = LV_TEXT_ALIGN_CENTER;
+     int h = 3 * pitch - CAPTION_LINE_SPACE;
+@@ -727,7 +731,7 @@
+ 
+     l = &s_answers[ANSWER_READ];
+     int status_bottom = (muse_board->rim_controls ? 40 : 20 + s_dy) + 16 - s_h / 2;
+-    l->px = MUSE_PX_W * MINI_CELL_PX;
++    l->px = MUSE_LAYOUT_PX * MINI_CELL_PX;
+     l->y = status_bottom + 2 + l->px / 2;   /* its sparkles clear of the status line */
+     l->align = LV_TEXT_ALIGN_LEFT;
+     art_bottom = l->y + l->px / 2 - ART_BLANK_ROWS * MINI_CELL_PX;
+@@ -865,7 +869,7 @@
+     int cap_top = cap_bottom - cap_h;
+     int meter_y = cap_top - 6 - METER_SEG_PX / 2;
+     int art_bottom = meter_y - METER_SEG_PX / 2 - 4;
+-    s_big_y = s_small ? 0 : art_bottom - (s_canvas_px / 2 - ART_BLANK_ROWS * (s_canvas_px / MUSE_PX_W));
++    s_big_y = s_small ? 0 : art_bottom - (s_canvas_px / 2 - ART_BLANK_ROWS * (s_canvas_px / MUSE_LAYOUT_PX));
+ 
+     /* The character. */
+     muse_image_init();
+@@ -1625,7 +1629,7 @@
+     s_tall = s_small && s_h >= s_w + 64;
+     /* Small screens keep room for the status line and button icons. A narrow
+      * one is as wide as Muse gets, in whole pixels. */
+-    s_canvas_px = s_small ? s_h * 3 / 4 : MUSE_PX_W * 5;
++    s_canvas_px = s_small ? s_h * 3 / 4 : MUSE_LAYOUT_PX * 5;
+     if (short_landscape) {
+         /* Leave the header's first 40 rows and bottom captions clear. */
+         s_canvas_px = s_h * 2 / 3;
+@@ -1634,14 +1638,14 @@
+         s_canvas_px = muse_board->avatar_px;
+     }
+     if (s_canvas_px > s_w) {
+-        s_canvas_px = s_w / MUSE_PX_W * MUSE_PX_W;
++        s_canvas_px = s_w / MUSE_LAYOUT_PX * MUSE_LAYOUT_PX;
+     }
+     s_dy = (s_h - 466) / 2;
+     if (!s_small && muse_board->round && s_dy < 0) {
+         /* A shorter screen moves the labels out towards its edges, but a
+          * smaller circle's edges curve away from them. Keep them where they
+          * are and shrink Muse to whole pixels that fit between them. */
+-        s_canvas_px = (MUSE_PX_W * 5 + 2 * s_dy) / MUSE_PX_W * MUSE_PX_W;
++        s_canvas_px = (MUSE_LAYOUT_PX * 5 + 2 * s_dy) / MUSE_LAYOUT_PX * MUSE_LAYOUT_PX;
+         s_dy = 0;
+     }
+ 
+--- a/esp32/components/muse/Kconfig
++++ b/esp32/components/muse/Kconfig
+@@ -191,3 +191,14 @@
+             session to its paired VM and replies are shown as text.
+ 
+ endmenu
++
++# ACTELL_AVATAR_V2_BEGIN
++config MUSE_AVATAR_V2
++    bool "Actell high-resolution avatar (160 px; off uses original 64 px)"
++    depends on MUSE_ENABLED
++    default y
++    help
++        Selects the staged Actell v13 renderer. Reconfigure/rebuild after changing.
++        Disable to compile only the legacy Actell renderer. Remove the stage to
++        restore the SDK official/custom avatar selection behavior.
++# ACTELL_AVATAR_V2_END

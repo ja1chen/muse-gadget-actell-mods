@@ -14,6 +14,19 @@ spec.loader.exec_module(tool)
 
 
 class TokenOnlyTests(unittest.TestCase):
+    def test_sdk_only_cannot_limit_audit_or_initialize_secrets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'synthetic.conf'
+            source.write_text('CONFIG_GADGET_SDK_TOKEN="SYNTHETIC_PRIVATE_INVALID"\n')
+            for mode in ['--audit-share', '--init']:
+                result = subprocess.run([sys.executable, str(ROOT / 'bridge/tools/apply-secrets.py'),
+                                         '--secrets', str(source), '--sdk-token-only', mode],
+                                        capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('--sdk-token-only requires an import', result.stdout)
+                self.assertNotIn('SYNTHETIC_PRIVATE_INVALID', result.stdout + result.stderr)
+                self.assertEqual(source.read_text(), 'CONFIG_GADGET_SDK_TOKEN="SYNTHETIC_PRIVATE_INVALID"\n')
+
     def test_provider_key_excluded_and_font_flag_preserved(self):
         with tempfile.TemporaryDirectory() as directory:
             source, target = Path(directory) / 'synthetic.conf', Path(directory) / 'sdkconfig'

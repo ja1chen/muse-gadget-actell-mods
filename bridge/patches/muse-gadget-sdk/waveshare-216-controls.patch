@@ -1,0 +1,403 @@
+# Base: Muse Gadget SDK 812c46f9fe42b69d916613a9dc702cbac5ff7b54
+--- a/esp32/components/muse/boards/board_waveshare_s3_216.c
++++ b/esp32/components/muse/boards/board_waveshare_s3_216.c
+@@ -17,9 +17,9 @@
+ /*
+  * Waveshare ESP32-S3-Touch-AMOLED-2.16: 480x480 CO5300 AMOLED with CST9220
+  * touch, ES8311 speaker + ES7210 dual mic, AXP2101 PMU, PCF85063 RTC.
+- * KEY3 (GPIO18, active low, board pull-up) is talk; BOOT (GPIO0) is aux.
++ * KEY3 (GPIO18, active low, board pull-up) is Talk; BOOT (GPIO0) is speaker.
+  * PWR reaches only the PMU, so its key edges are latched over I2C and mapped
+- * to talk as well. Schematic-checked: the PMU IRQ line is not wired to the
++ * to independent power control. Schematic-checked: the PMU IRQ line is not wired to the
+  * ESP32 (I2C polling still works), DCDC1=VCC3V3, ALDO1=A3V3 (codecs).
+  */
+ 
+@@ -39,6 +39,8 @@
+ #include "muse_lcd_bands.h"
+ #include "muse_mem.h"
+ #include "muse_pmu.h"
++#include "esp_timer.h"
++#include "waveshare_216_controls.h"
+ 
+ static const char *TAG = "board";
+ 
+@@ -46,11 +48,14 @@
+ #define LCD_CHUNK_BYTES (BSP_LCD_H_RES * 8 * 2)
+ 
+ #define KEY_GPIO GPIO_NUM_18 /* KEY3, active low with the board's pull-up */
+-#define PMU_KEY_EVERY 2      /* poll the PMU over I2C every 20 ms */
++#define PMU_KEY_INTERVAL_US 20000
++#define PMU_WAIT_MS 50 /* timer wake, not a PMU IRQ; power cost needs measurement */
+ 
+ static esp_lcd_panel_io_handle_t s_io;
+ static esp_lcd_touch_handle_t s_tp;
+ static muse_gpio_button_t s_key, s_boot;
++static waveshare_216_controls_t s_power;
++static bool s_pmu_ready;
+ 
+ static esp_err_t init(void)
+ {
+@@ -65,7 +70,11 @@
+         ESP_LOGW(TAG, "PMU unavailable (%s): battery status disabled", esp_err_to_name(err));
+         return ESP_OK;
+     }
+-    (void)muse_pmu_poll_key();
++    err = muse_pmu_key_long_1500ms();
++    unsigned ignored;
++    if (err == ESP_OK) err = muse_pmu_poll_key_checked(&ignored);
++    s_pmu_ready = err == ESP_OK;
++    if (!s_pmu_ready) ESP_LOGW(TAG, "PWR controls unavailable (%s)", esp_err_to_name(err));
+ 
+     /* Only DCDC1 (VCC3V3) and ALDO1 (A3V3, for the codecs) feed anything; the
+      * schematic leaves the rest unconnected. Waveshare's AXP2101 example and
+@@ -208,54 +217,48 @@
+     esp_codec_dev_set_in_gain(mic, db == 33 ? 34.5f : (float)db);
+ }
+ 
+-/* KEY3 and PWR both talk: the turn runs while either is held. */
++/* GPIOs stay independent; a failed PMU transaction cannot change Talk/mic. */
+ static unsigned poll_buttons(void)
+ {
+-    static unsigned tick;
+-    static bool key_held, pwr_held;
+-    bool was_held = key_held || pwr_held;
+-    unsigned key = muse_gpio_button_poll(&s_key);
+-    unsigned edges = muse_gpio_button_poll(&s_boot) << 2; /* BOOT is aux */
+-    if (key & MUSE_BTN_TALK_PRESS)
+-        key_held = true;
+-    if (key & MUSE_BTN_TALK_RELEASE)
+-        key_held = false;
+-    /* PWR only reaches the PMU, as on the 1.75. */
+-    if (tick++ % PMU_KEY_EVERY == 0) {
+-        unsigned pmu = muse_pmu_poll_key();
+-        /* Both edges in one read means the whole press went by unpolled, while
+-         * wait_buttons slept on KEY3 and BOOT: drop it rather than send a
+-         * zero-length turn. */
+-        if ((pmu & (MUSE_PMU_KEY_PRESS | MUSE_PMU_KEY_RELEASE)) != (MUSE_PMU_KEY_PRESS | MUSE_PMU_KEY_RELEASE)) {
+-            if (pmu & MUSE_PMU_KEY_PRESS)
+-                pwr_held = true;
+-            if (pmu & MUSE_PMU_KEY_RELEASE)
+-                pwr_held = false;
+-        }
+-    }
+-    bool held = key_held || pwr_held;
+-    if (held && !was_held)
+-        edges |= MUSE_BTN_TALK_PRESS;
+-    if (!held && was_held)
+-        edges |= MUSE_BTN_TALK_RELEASE;
++    static int64_t last_pmu = -PMU_KEY_INTERVAL_US;
++    static bool warned;
++    unsigned edges = muse_gpio_button_poll(&s_key);
++    unsigned boot = muse_gpio_button_poll(&s_boot);
++    if (boot & MUSE_BTN_TALK_PRESS) edges |= MUSE_BTN_SPEAKER_PRESS;
++    if (boot & MUSE_BTN_TALK_RELEASE) edges |= MUSE_BTN_SPEAKER_RELEASE;
++    if (s_power.release_pending) {
++        return edges | waveshare_216_power(&s_power, true, 0);
++    }
++    int64_t now = esp_timer_get_time();
++    if (s_pmu_ready && now - last_pmu >= PMU_KEY_INTERVAL_US) {
++        last_pmu = now;
++        unsigned pmu;
++        esp_err_t err = muse_pmu_poll_key_checked(&pmu);
++        edges |= waveshare_216_power(&s_power, err == ESP_OK, pmu);
++        if (err != ESP_OK && !warned) ESP_LOGW(TAG, "PWR latch error (%s); transaction cancelled", esp_err_to_name(err));
++        warned = err != ESP_OK;
++    }
+     return edges;
+ }
+ 
+ static void wait_buttons(int timeout_ms)
+ {
+-    /* The PMU's IRQ line isn't wired to the ESP32, so PWR can't wake the chip
+-     * from light sleep; the PMU handles power on/off itself. */
++    /* PMU IRQ is not connected. The RTOS timer wakes periodic I2C polling even
++     * during Wi-Fi nap; this cap applies only to this board. */
++    if (timeout_ms < 0 || timeout_ms > PMU_WAIT_MS) timeout_ms = PMU_WAIT_MS;
+     muse_gpio_buttons_wait((muse_gpio_button_t *const[]){ &s_key, &s_boot }, 2, timeout_ms);
+ }
+ 
+ static const muse_board_t s_board = {
+     .name = "Waveshare ESP32-S3-Touch-AMOLED-2.16",
+     .width = BSP_LCD_H_RES, .height = BSP_LCD_V_RES, .round = false, .touch = true, .diagonal_in = 2.16f,
+-    .talk_button = "key", .aux_button = "boot",
++    .talk_button = "KEY3", .speaker_button = "boot", .power_button = "PWR",
++    .rim_controls = true,
+     /* The buttons are on the top edge: BOOT, PWR, KEY3 from the left, seen from
+      * the front. Icons sit between the edge and the ring, under KEY3 and BOOT. */
+     .talk_hint = { LV_ALIGN_TOP_MID, 113, 6 },
+-    .aux_hint = { LV_ALIGN_TOP_MID, -113, 6 },
++    .speaker_hint = { LV_ALIGN_TOP_MID, -113, 6 },
++    .power_hint = { LV_ALIGN_TOP_MID, 0, 6 },
+     .frame_ms = 40,
+     .init = init,
+     .display_start = display_start,
+--- a/esp32/components/muse/muse_board.h
++++ b/esp32/components/muse/muse_board.h
+@@ -53,6 +53,8 @@
+ #define MUSE_BTN_POWER_PRESS  (1u << 10)
+ #define MUSE_BTN_POWER_RELEASE (1u << 11)
+ #define MUSE_BTN_POWER_LONG   (1u << 12)
++/* Cancel an uncertain PMU transaction without short/long action. */
++#define MUSE_BTN_POWER_CANCEL (1u << 15)
+ #define MUSE_BTN_SPEAKER_PRESS (1u << 13)
+ #define MUSE_BTN_SPEAKER_RELEASE (1u << 14)
+ 
+--- a/esp32/components/muse/muse_input.c
++++ b/esp32/components/muse/muse_input.c
+@@ -401,8 +401,19 @@
+     s_power_swallow = false;
+ }
+ 
+-static void dedicated_buttons(unsigned ev)
+-{
++static void dedicated_buttons(unsigned ev
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++                              , bool asleep_at_poll
++#endif
++)
++{
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++    bool speaker_wake = asleep_at_poll;
++    bool power_shutdown = false;
++    if (ev & MUSE_BTN_POWER_CANCEL) {
++        s_power_down = s_power_swallow = false;
++    }
++#endif
+     bool release = (ev & MUSE_BTN_POWER_RELEASE) != 0;
+     /* Preserve release-before-new-press ordering for latched boards. */
+     if (s_power_down && release) {
+@@ -411,7 +422,11 @@
+     }
+     if (!s_power_down && (ev & MUSE_BTN_POWER_PRESS)) {
+         s_power_down = true;
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++        s_power_swallow = asleep_at_poll;
++#else
+         s_power_swallow = muse_state_asleep();
++#endif
+         muse_state_poke();
+         if (s_power_swallow) set_asleep(false, muse_board->power_button);
+     }
+@@ -419,11 +434,20 @@
+         s_power_swallow = true;   /* no sleep on release after shutdown/failure */
+         if (s_talk_down) talk_button(MUSE_BTN_TALK_RELEASE);
+         power_off();
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++        power_shutdown = true;
++#endif
+     }
+     if (release) power_release();
+     if (ev & MUSE_BTN_SPEAKER_PRESS) {
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++        if (power_shutdown) return;
++        bool wake_only = speaker_wake;
++#else
++        bool wake_only = muse_state_asleep();
++#endif
+         muse_state_poke();
+-        if (muse_state_asleep()) {
++        if (wake_only) {
+             set_asleep(false, muse_board->speaker_button);   /* wake-only press */
+         } else if (muse_state_mode(NULL) != MUSE_MODE_OFF) {
+             bool on = !muse_settings_speaker_on();
+@@ -444,6 +468,9 @@
+     TickType_t powered = xTaskGetTickCount() - pdMS_TO_TICKS(POWER_MS);
+ 
+     for (;;) {
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++        bool asleep_at_poll = muse_state_asleep();
++#endif
+         unsigned ev = muse_board->poll_buttons();
+         if (ev & (MUSE_BTN_TALK_PRESS | MUSE_BTN_TALK_RELEASE)) {
+             ESP_LOGI(TAG, "talk key:%s%s", ev & MUSE_BTN_TALK_PRESS ? " press" : "",
+@@ -451,7 +478,11 @@
+             talk_button(ev);
+         }
+         keyboard_buttons(ev);
+-        dedicated_buttons(ev);
++        dedicated_buttons(ev
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++                          , asleep_at_poll
++#endif
++        );
+         /* A latched key (the 1.75's PMU) can report press and release in the
+          * same poll, and a release can land just before the next press; keep
+          * them ordered, as talk_button does. */
+--- a/esp32/components/muse/muse_pmu.c
++++ b/esp32/components/muse/muse_pmu.c
+@@ -148,6 +148,39 @@
+     return ev;
+ }
+ 
++/* Keep the legacy poll API unchanged for other boards. */
++esp_err_t muse_pmu_poll_key_checked(unsigned *events)
++{
++    *events = 0;
++    if (!s_dev) return ESP_ERR_INVALID_STATE;
++    uint8_t sts;
++    esp_err_t err = rd(REG_INTSTS2, &sts);
++    if (err != ESP_OK) return err;
++    sts &= PKEY_ALL;
++    if (sts) {
++        err = wr(REG_INTSTS2, sts);
++        if (err != ESP_OK) return err; /* never deliver an unacknowledged event */
++    }
++    if (sts & PKEY_NEG_EDGE) *events |= MUSE_PMU_KEY_PRESS;
++    if (sts & PKEY_POS_EDGE) *events |= MUSE_PMU_KEY_RELEASE;
++    if (sts & PKEY_SHORT) *events |= MUSE_PMU_KEY_CLICK;
++    if (sts & PKEY_LONG) *events |= MUSE_PMU_KEY_LONG;
++    return ESP_OK;
++}
++
++esp_err_t muse_pmu_key_long_1500ms(void)
++{
++    if (!s_dev) return ESP_ERR_INVALID_STATE;
++    uint8_t value, check;
++    ESP_RETURN_ON_ERROR(rd(REG_IRQ_LEVEL, &value), TAG, "read key timing");
++    /* Datasheet REG27: [5:4]=01 is 1.5s IRQ; preserve ONLEVEL and 10s OFFLEVEL. */
++    value = (value & ~0x30) | 0x10;
++    ESP_RETURN_ON_ERROR(wr(REG_IRQ_LEVEL, value), TAG, "set key timing");
++    ESP_RETURN_ON_ERROR(rd(REG_IRQ_LEVEL, &check), TAG, "verify key timing");
++    return (check & 0x3F) == (value & 0x3F) && (check & 0x0C) == PKEY_OFF_10S
++           ? ESP_OK : ESP_ERR_INVALID_STATE;
++}
++
+ esp_err_t muse_pmu_read_power(muse_power_t *out)
+ {
+     uint8_t s1, s2, pct, hi, lo;
+--- a/esp32/components/muse/muse_pmu.h
++++ b/esp32/components/muse/muse_pmu.h
+@@ -46,6 +46,10 @@
+ /* Returns and clears latched MUSE_PMU_KEY_* events. */
+ unsigned muse_pmu_poll_key(void);
+ 
++/* Optional 2.16 controls: checked read/ack and hardware IRQLEVEL setup. */
++esp_err_t muse_pmu_poll_key_checked(unsigned *events);
++esp_err_t muse_pmu_key_long_1500ms(void);
++
+ esp_err_t muse_pmu_read_power(muse_power_t *out);
+ 
+ /* Soft power-off: the AXP2101 cuts every rail. PWR turns the board back on. */
+--- a/esp32/components/muse/muse_ui.c
++++ b/esp32/components/muse/muse_ui.c
+@@ -798,9 +798,41 @@
+             { cx + iw, y, cx + ow, y2 },
+         };
+         for (int i = 0; i < (iw ? 2 : 1); i++) {
+-            if (lv_area_intersect(&layer->_clip_area, &clip, &pieces[i])) {
+-                lv_obj_event_base(NULL, e);   /* the arc's own drawing */
++            lv_area_t piece;
++            if (!lv_area_intersect(&piece, &clip, &pieces[i])) continue;
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++            /* Top controls reserve a 2px clear margin. Split the clip instead
++             * of painting a black mask over an otherwise continuous arc. */
++            const int offsets[] = { -113, 0, 113 };
++            int top = cy - (s_h - 1) / 2;
++            int start = piece.x1;
++            int gap_bottom = top + 43; /* largest side icon: y6..41 + 2px */
++            if (piece.y1 <= gap_bottom && piece.y2 >= top + 4) {
++                for (int j = 0; j < 3; j++) {
++                    int half = j == 1 ? 16 : 20;
++                    int left = cx + offsets[j] - half + 1;
++                    int right = cx + offsets[j] + half;
++                    if (right < start || left > piece.x2) continue;
++                    if (start < left) {
++                        layer->_clip_area = (lv_area_t){ start, piece.y1, left - 1, LV_MIN(piece.y2, gap_bottom) };
++                        lv_obj_event_base(NULL, e);
++                    }
++                    start = LV_MAX(start, right + 1);
++                }
++                if (start <= piece.x2) {
++                    layer->_clip_area = (lv_area_t){ start, piece.y1, piece.x2, LV_MIN(piece.y2, gap_bottom) };
++                    lv_obj_event_base(NULL, e);
++                }
++                /* Finish the slab below the reserved icon band uncut. */
++                if (piece.y2 > gap_bottom) {
++                    layer->_clip_area = (lv_area_t){ piece.x1, gap_bottom + 1, piece.x2, piece.y2 };
++                    lv_obj_event_base(NULL, e);
++                }
++                continue;
+             }
++#endif
++            layer->_clip_area = piece;
++            lv_obj_event_base(NULL, e);
+         }
+     }
+     layer->_clip_area = clip;
+@@ -1047,11 +1079,37 @@
+ static lv_obj_t *make_control_icon(lv_obj_t *scr, const muse_button_hint_t *pos,
+                                    const char *symbol, uint32_t color)
+ {
+-    lv_obj_t *icon = make_label(scr, &lv_font_montserrat_28, color);
+-    lv_obj_set_size(icon, 36, 36);
++    const lv_font_t *font = &lv_font_montserrat_28;
++    int size = 36;
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++#if !CONFIG_LV_FONT_MONTSERRAT_24
++#error "Waveshare 2.16 controls require native Montserrat 24"
++#endif
++    if (pos == &muse_board->power_hint) {
++        font = &lv_font_montserrat_24;
++        size = 28;
++    }
++#endif
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++    /* Keep the colored version's black backdrop, without a theme focus frame. */
++    lv_obj_t *icon = lv_label_create(scr);
++    lv_obj_remove_style_all(icon);
++    lv_obj_set_style_text_font(icon, font, 0);
++    lv_obj_set_style_text_color(icon, lv_color_hex(color), 0);
++    lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
+     lv_obj_set_style_bg_color(icon, lv_color_black(), 0);
+     lv_obj_set_style_bg_opa(icon, LV_OPA_COVER, 0);
+     lv_obj_set_style_radius(icon, 6, 0);
++    lv_obj_set_style_border_width(icon, 0, 0);
++    lv_obj_set_style_outline_width(icon, 0, 0);
++    lv_obj_remove_flag(icon, LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_SCROLLABLE);
++#else
++    lv_obj_t *icon = make_label(scr, font, color);
++    lv_obj_set_style_bg_color(icon, lv_color_black(), 0);
++    lv_obj_set_style_bg_opa(icon, LV_OPA_COVER, 0);
++    lv_obj_set_style_radius(icon, 6, 0);
++#endif
++    lv_obj_set_size(icon, size, size);
+     lv_label_set_long_mode(icon, LV_LABEL_LONG_MODE_CLIP);
+     lv_label_set_text(icon, symbol);
+     lv_obj_remove_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+@@ -1070,14 +1128,22 @@
+     lv_obj_set_flag(s_pwr_hint, LV_OBJ_FLAG_HIDDEN, settings);
+     static int last_mode = -1;
+     if ((int)mode != last_mode) {
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++        color_mic(s_ptt_hint, mode == MUSE_MODE_LISTENING ? muse_pixel_accent(mode) : COLOR_DIM);
++#else
+         color_mic(s_ptt_hint, mode == MUSE_MODE_LISTENING ? 0x64d4ff : 0x80bfff);
++#endif
+         last_mode = (int)mode;
+     }
+     bool speaker_on = muse_settings_speaker_on();
+     const char *speaker = speaker_on ? LV_SYMBOL_VOLUME_MID : LV_SYMBOL_MUTE;
+     if (strcmp(speaker, lv_label_get_text(s_spk_hint))) {
+         lv_label_set_text(s_spk_hint, speaker);
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++        lv_obj_set_style_text_color(s_spk_hint, lv_color_hex(COLOR_DIM), 0);
++#else
+         lv_obj_set_style_text_color(s_spk_hint, lv_color_hex(speaker_on ? 0xffd060 : 0x8b7845), 0);
++#endif
+     }
+ }
+ 
+@@ -1124,7 +1190,12 @@
+         /* Dedicated ownership: legacy chrome/reply hides must never claim it. */
+         s_ptt_hint = make_mic(scr, 26);
+         lv_obj_align(s_ptt_hint, muse_board->talk_hint.align, muse_board->talk_hint.x, muse_board->talk_hint.y);
++#if CONFIG_MUSE_BOARD_WAVESHARE_S3_216
++        s_spk_hint = make_control_icon(scr, &muse_board->speaker_hint, LV_SYMBOL_VOLUME_MID, COLOR_DIM);
++        s_pwr_hint = make_control_icon(scr, &muse_board->power_hint, LV_SYMBOL_POWER, COLOR_DIM);
++#else
+         s_spk_hint = make_control_icon(scr, &muse_board->speaker_hint, LV_SYMBOL_VOLUME_MID, 0xffd060);
+         s_pwr_hint = make_control_icon(scr, &muse_board->power_hint, LV_SYMBOL_POWER, 0xff8080);
++#endif
+         update_control_hints(MUSE_MODE_BOOT);
+     }

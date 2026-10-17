@@ -2,6 +2,7 @@
 """Stage the resource reader and checked SDK hooks; never touch credentials or Flash."""
 import argparse
 import hashlib
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -22,9 +23,17 @@ def main():
     archive = ROOT / 'local/upstream/archives/muse-gadget-sdk-812c46f.tar.gz'
     if hashlib.sha256(archive.read_bytes()).hexdigest() != '0a7548404b4aa25ad0cc3ad0f9fee1ad3a3245a03a14b02293da3a83bde69359':
         parser.error('Wrong SDK archive hash')
-    # Other bridge patches do not change this UI baseline; reject SDK drift.
+    # Accept the pinned UI or the exact reversible avatar adaptation only.
     with tarfile.open(archive) as tar:
-        if (sdk / 'esp32/components/muse/muse_ui.c').read_bytes() != tar.extractfile('esp32/components/muse/muse_ui.c').read():
+        baseline = tar.extractfile('esp32/components/muse/muse_ui.c').read()
+        current = (sdk / 'esp32/components/muse/muse_ui.c').read_bytes()
+        record = sdk / 'esp32/components/muse/.actell-avatar-v2-stage.json'
+        avatar_ui = None
+        if record.is_file():
+            edit = json.loads(record.read_text())['edits']['muse_ui.c']
+            if edit['before'].encode() == baseline and hashlib.sha256(current).hexdigest() == edit['after']:
+                avatar_ui = current
+        if current != baseline and current != avatar_ui:
             parser.error('UI differs from the pinned SDK (or hooks were already applied)')
     target = sdk / 'esp32/components/actell_fonts'
     if target.exists():
