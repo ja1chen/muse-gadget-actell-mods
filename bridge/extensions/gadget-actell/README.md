@@ -90,6 +90,14 @@ synthetic identity and optional tools to enforce the 8 KiB budget. Runtime audit
 lines contain fixed operation/state words, capacity counts and opaque timing correlation
 IDs, never phone content, parameters, credentials or account/device identity.
 
+One worker retains at most one authenticated TLS connection for up to ten minutes
+of business inactivity. Hello can borrow it without extending that deadline. The
+thirty-second network locator cache remains separate. Optional completion hints
+reclaim only idle resources; queued/active work and a new control generation fence
+cleanup. No chat subscription is started, extended or owned by this policy. Actell
+independently checks media ownership before honoring `companion.release_idle`.
+See [transport lifecycle](../../../docs/protocol/ACTELL-PERF-1.md).
+
 The advertised interface is nine flat commands: `actell.screenshot`, `actell.tap`,
 `actell.drag`, `actell.home`, `actell.list_apps`, `actell.launch_app`,
 `actell.type_text`, `actell.wait` and `actell.call_status`. There are no public
@@ -107,10 +115,15 @@ on this path; the receiver still gets one ordinary `link.result` JSON with
 base64 bytes. This reduces resident memory, not wire size; JPEG remains fully
 buffered for identity, dimensions and hash checks before transmission.
 
-Within one outer invocation, complete HTTP responses can reuse the same verified
-TLS connection. The connection closes at invocation end, failure, identity/network
-change or bounded idle/request limits. A thirty-second locator cache also avoids
-repeat discovery across invocations, bound to the saved identity and Wi-Fi epoch.
+Complete HTTP responses can reuse the same verified TLS connection within an
+invocation and across consecutive successful invocations. One serialized worker
+owns a single idle slot, bound to saved identity, Wi-Fi network and Muse control
+generation. Failure, identity/network/generation change, ten minutes business-idle or
+sixteen total requests close it; idle expiry is enforced without another request.
+Pairing actions discard the slot. Hello borrows it without extending business idle;
+a cold hello closes its own connection. Local tool waits also reap it at expiry.
+A thirty-second locator cache also avoids repeat discovery across invocations.
+Its TTL applies before a new connection, never to an otherwise live connection.
 Cached connection attempts are capped at two seconds; only failure before any body
 write attempt may fall back once to discovery. Every RPC is freshly signed; failed
 phone operations are never replayed. Peers advertising bounded completion/release
@@ -159,7 +172,7 @@ See [the shared contract](../../../docs/protocol/FLAT-TOOLS-1.md),
 
 ## Bounds and outcome semantics
 
-- One worker; three queued requests; flat arguments bounded by their schema; JSON ingress and HTTP requests ≤64 KiB;
+- One worker; twenty queued requests, excluding the active request; flat arguments bounded by their schema; JSON ingress and HTTP requests ≤64 KiB;
   JSON responses ≤256 KiB; JPEG ≤256 KiB; result payload under 360 KiB.
 - Registration contains nine phone commands when images are enabled, within the SDK's 8-KiB budget.
   Full board registration must still be measured in target/runtime validation.

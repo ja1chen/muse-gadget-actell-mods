@@ -32,7 +32,7 @@ RECOVERY_STAGES = {'discovery', 'pair_socket', 'pair_verify', 'pair_validation',
                    'tunnel_listener', 'tunnel_socket', 'tunnel_tls', 'service_socket',
                    'service_discovery', 'developer_readiness'}
 NUMBERS = {'elapsed_ms', 'queue_ms', 'since_invoke_ms', 'discovery_ms', 'connect_ms', 'read_ms',
-           'total_ms', 'cache_hit', 'connection_reused', 'attempt', 'sent_bytes', 'bytes',
+           'total_ms', 'cache_hit', 'connection_reused', 'connection_borrowed', 'attempt', 'sent_bytes', 'bytes',
            'jpeg_bytes', 'wire_bytes', 'chunks', 'ok', 'image'}
 OPERATIONS = {'capabilities', 'runs.open', 'runs.get', 'runs.cancel', 'tools.call', 'calls.get',
               'images.get', 'actell.screenshot', 'actell.call_status'}
@@ -127,6 +127,7 @@ def summarize(events):
                   'ambiguous_or_incomplete': ambiguous,
                   'upload_completed': bool(uploads), 'http_attempts': len(http),
                   'new_connection_attempts': sum(e.get('connection_reused') == 0 for e in http),
+                  'borrowed_connection_attempts': sum(e.get('connection_borrowed') == 1 for e in http),
                   'transport_failures': sum(e.get('ok') == 0 for e in http),
                   'discovery_failures': discovery_failures,
                   'capture_failed': not ambiguous and (captures[0].get('ok') == 0 or aborted),

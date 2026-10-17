@@ -14,7 +14,10 @@
 
 static atomic_uint network_epoch = 1;
 uint32_t actell_lan_epoch(void) { return atomic_load(&network_epoch); }
-void actell_lan_network_changed(void) { atomic_fetch_add(&network_epoch, 1); }
+void actell_lan_network_changed(void) {
+    atomic_fetch_add(&network_epoch, 1);
+    actell_bridge_pair_wake(); /* Serialized worker reaps idle TLS, never this callback. */
+}
 #ifdef ESP_PLATFORM
 static void network_event(void *arg, esp_event_base_t base, int32_t id, void *data) {
     (void)arg; (void)data;

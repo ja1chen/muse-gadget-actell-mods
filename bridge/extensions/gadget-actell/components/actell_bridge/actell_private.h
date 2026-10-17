@@ -8,8 +8,8 @@ static inline const char *actell_device_name(const actell_config *c) {
     return c->named_muse_gadget ? "Muse Gadget" : "Muse gadget";
 }
 typedef struct {uint32_t epoch,ip,netmask,gateway;} actell_network_stamp;
-/* One serialized worker owns locators/sessions. Event callbacks only advance epoch.
- * HTTP/TLS state is invocation-local; the shared cache contains only a locator. */
+/* One serialized worker owns locators/sessions, including one idle connection.
+ * Event callbacks only advance generation/epoch and wake that worker. */
 typedef struct {
  char address[16],origin[272],client[129],fingerprint[65],operation_id[65];
  actell_network_stamp network;
@@ -22,6 +22,11 @@ esp_err_t actell_http(const actell_config *config,const char *request_id,const c
 esp_err_t actell_http_with_locator(const actell_config *,const char *,const char *,bool,uint64_t,int64_t,actell_response *,actell_http_locator *);
 void actell_http_locator_close(actell_http_locator *);
 void actell_http_invalidate(actell_http_locator *);
+/* Worker-only: transfer a completed connection into the idle slot; reap expired
+ * or invalid idle state and return the maximum queue wait before the next reap. */
+void actell_http_locator_release(actell_http_locator *);
+unsigned actell_http_idle_wait_ms(void);
+void actell_http_close_idle(void);
 bool actell_bridge_current(uint64_t generation);
 
 void actell_activity_observe(uint64_t generation,const char *op,const cJSON *params,const cJSON *result);

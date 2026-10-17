@@ -35,11 +35,18 @@ size_t actell_bridge_result_limit(void){return ACTELL_RESULT_MAX;}
 
 static actell_guard *guard;
 
+enum { ACTELL_QUEUE_CAPACITY = 20 };
 static QueueHandle_t queue;
 
 static SemaphoreHandle_t mutex;
 
 static bool started;
+/* Guarded with admission; obsolete-generation jobs also drain before cleanup. */
+static unsigned pending_jobs;
+static uint64_t idle_hint_generation;
+/* Worker-owned capability and opportunity, never cloud task/run identities. */
+static uint64_t peer_idle_release_generation, idle_candidate_generation;
+static int64_t idle_candidate_until;
 
 bool actell_bridge_current(uint64_t generation){
  if(generation==SLAN_LOCAL_GENERATION)return actell_pair_current();
@@ -60,6 +67,17 @@ return r;
 }
 static const char *str(const cJSON*j,const char*k){const cJSON*v=cJSON_GetObjectItemCaseSensitive(j,k);
 return cJSON_IsString(v)?v->valuestring:NULL;
+}
+void actell_bridge_observe_event(const cJSON *event){
+ const char *type=str(event,"type"),*name=str(event,"event");
+ const char *status=str(cJSON_GetObjectItemCaseSensitive(event,"payload"),"status");
+ if(!type||strcmp(type,"event")||!name||strcmp(name,"task.status")||
+    !status||strcmp(status,"completed")||!mutex||!guard)return;
+ xSemaphoreTake(mutex,portMAX_DELAY);
+ bool post=started&&guard->generation&&!pending_jobs&&!idle_hint_generation;
+ if(post)idle_hint_generation=guard->generation;
+ xSemaphoreGive(mutex);
+ if(post)actell_bridge_pair_wake();
 }
 static bool unique(const cJSON*j,unsigned depth){if(depth>12||(cJSON_IsNumber(j)&&!isfinite(j->valuedouble)))return false;
 for(const cJSON*a=j?j->child:NULL;
@@ -161,7 +179,15 @@ typedef struct {job *work;actell_flat_store store;} flat_context;
 static cJSON *flat_step(void *ctx,const char *op,const cJSON *p){return rpc_step(((flat_context*)ctx)->work,op,p);}
 static bool flat_current(void *ctx){return actell_bridge_current(((flat_context*)ctx)->work->generation);}
 static long long flat_remaining(void *ctx){return (((flat_context*)ctx)->work->expires-esp_timer_get_time())/1000;}
-static void flat_pause(void *ctx,unsigned ms){(void)ctx;vTaskDelay(pdMS_TO_TICKS(ms));}
+static void flat_pause(void *ctx,unsigned ms){
+ (void)ctx;
+ while(ms){
+  unsigned next=actell_http_idle_wait_ms(),chunk=ms<next?ms:next;
+  unsigned ticks=pdMS_TO_TICKS(chunk);
+  vTaskDelay(ticks?ticks:1);ms-=chunk;
+ }
+ (void)actell_http_idle_wait_ms(); /* Local actell.wait also observes idle expiry. */
+}
 static void flat_trace(flat_context *ctx,const actell_flat_record *r){
  if(ctx->work->locator){
   ctx->work->locator->operation_id[0]=0;
@@ -271,6 +297,9 @@ if(!strcmp(j->op,"tools.call")||!strcmp(j->op,"calls.get"))valid=valid&&same(res
    valid=cJSON_IsObject(remote_error)&&str(remote_error,"code")&&str(remote_error,"message")&&cJSON_IsBool(cJSON_GetObjectItemCaseSensitive(remote_error,"retryable"));
   }
   if(valid){if(cJSON_IsTrue(ok)){
+ if(!strcmp(j->op,"capabilities"))
+     peer_idle_release_generation=cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(
+         cJSON_GetObjectItemCaseSensitive(result,"performance"),"idle_release"))?j->generation:0;
  xSemaphoreTake(mutex,portMAX_DELAY);
  if(guard->generation==j->generation)actell_activity_observe(j->generation,j->op,j->params,result);
  xSemaphoreGive(mutex);
@@ -299,16 +328,52 @@ cJSON_AddItemToObject(out,cJSON_IsTrue(ok)?"payload":"error",cJSON_Duplicate(cJS
 return out;
 
 }
+/* Busy hints are discarded, not saved to terminate an unrelated later run. */
+static void reclaim_idle_hint(void){
+ xSemaphoreTake(mutex,portMAX_DELAY);
+ uint64_t generation=idle_hint_generation;
+ idle_hint_generation=0;
+ bool idle_now=generation&&guard->generation==generation&&!pending_jobs;
+ xSemaphoreGive(mutex);
+ if(!idle_now||!actell_bridge_current(generation))return;
+ bool notify=peer_idle_release_generation==generation&&idle_candidate_generation==generation&&
+     esp_timer_get_time()<idle_candidate_until;
+ idle_candidate_generation=0;idle_candidate_until=0;
+ bool ok=false;
+ if(notify){
+  /* New invokes may queue now, but cannot use resources until this bounded
+   * worker operation finishes. Actell independently checks ALL media users. */
+  actell_http_locator locator={0};
+  job request={.generation=generation,.expires=esp_timer_get_time()+2000000,.locator=&locator};
+  strcpy(request.op,"companion.release_idle");actell_random_uuid(request.id);
+  request.params=cJSON_CreateObject();
+  cJSON *response=request.params?execute(&request):NULL;
+  ok=cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(response,"ok"));
+  cJSON_Delete(response);cJSON_Delete(request.params);
+  actell_http_locator_close(&locator);
+ }
+ actell_http_close_idle();
+ ESP_LOGI("actell.rpc","phase=idle_release reason=completion_hint notified=%d ok=%d",notify,ok);
+}
 static void worker(void*unused){(void)unused;
 job*j;
 
  actell_pair_boot();
  for(;;){
+  (void)actell_http_idle_wait_ms();
+  reclaim_idle_hint();
   actell_pair_poll();
-  if(xQueueReceive(queue,&j,pdMS_TO_TICKS(30000))!=pdTRUE)continue;
+  /* Wake at the idle connection deadline even when no new tool arrives. */
+  unsigned wait_ms=actell_http_idle_wait_ms();
+  if(xQueueReceive(queue,&j,pdMS_TO_TICKS(wait_ms)+1)!=pdTRUE)continue;
 
-  if(!j)continue; /* Clock wakeup: poll saved pairing on the next iteration. */
-  if(j->local_action){actell_pair_process(j->local_action,j->local_index);free(j);continue;}
+  if(!j)continue; /* Clock/network/session wake: recheck state on the next iteration. */
+  if(j->local_action){
+   actell_http_invalidate(NULL);peer_idle_release_generation=idle_candidate_generation=0;
+   actell_pair_process(j->local_action,j->local_index);free(j);
+   xSemaphoreTake(mutex,portMAX_DELAY);pending_jobs--;xSemaphoreGive(mutex);
+   continue;
+  }
   xSemaphoreTake(mutex,portMAX_DELAY);
 bool current=j->generation==guard->generation;
 xSemaphoreGive(mutex);
@@ -323,8 +388,10 @@ xSemaphoreGive(mutex);
   actell_image_blob image={0};j->image_out=&image;
   actell_http_locator locator={0};j->locator=&locator;
   cJSON*r=!current?error("unknown","Session changed; queued request was not sent"):esp_timer_get_time()>j->expires?error("deadline_exceeded","Request expired in local queue"):execute(j);
+  if(current&&strcmp(j->op,"actell.wait")&&strcmp(j->op,"actell.call_status")){
+   idle_candidate_generation=j->generation;idle_candidate_until=esp_timer_get_time()+600000000LL;
+  }
 
-  actell_http_locator_close(&locator);
   if(image.data){
    snprintf(image.operation_id,sizeof(image.operation_id),"%s",locator.operation_id);
    image.invoked_at_us=j->queued_at;image.queued_at_us=esp_timer_get_time();
@@ -337,6 +404,10 @@ xSemaphoreGive(mutex);
 bool finish=actell_guard_finish(guard,j->generation,j->id);
   actell_activity_end(j->generation,finish&&cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(r,"ok")));
 xSemaphoreGive(mutex);
+
+  if(finish&&cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(r,"ok"))&&esp_timer_get_time()<j->expires)
+      actell_http_locator_release(&locator);
+  else actell_http_locator_close(&locator);
 
   ESP_LOGI("actell.rpc","phase=result_dispatch op=%s current=%d",j->op,finish);
   if(r)cJSON_AddBoolToObject(r,"_actell",true);
@@ -353,6 +424,7 @@ xSemaphoreGive(mutex);
 
   cJSON_Delete(j->params);
 free(j);
+  xSemaphoreTake(mutex,portMAX_DELAY);pending_jobs--;xSemaphoreGive(mutex);
 
  }
 }
@@ -363,22 +435,32 @@ void actell_bridge_init(void){
  if(!guard)guard=heap_caps_calloc(1,sizeof(*guard),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
  if(!guard)guard=calloc(1,sizeof(*guard));
  if(!guard){xSemaphoreGive(mutex);return;}
- if(!started){queue=xQueueCreate(3,sizeof(job*));
- if(queue&&xTaskCreate(worker,"actell_rpc",12288,NULL,3,NULL)==pdPASS)started=true;
+ if(!started){queue=xQueueCreate(ACTELL_QUEUE_CAPACITY,sizeof(job*));
+ if(queue&&xTaskCreate(worker,"actell_rpc",12288,NULL,3,NULL)==pdPASS){
+ started=true;ESP_LOGI("actell.rpc","worker_ready queue_capacity=%u",(unsigned)ACTELL_QUEUE_CAPACITY);}
  else if(queue){vQueueDelete(queue);queue=NULL;}}
  xSemaphoreGive(mutex);
 }
 void actell_bridge_session(uint64_t generation){
  actell_bridge_init();if(!mutex||!guard)return;
- xSemaphoreTake(mutex,portMAX_DELAY);actell_guard_session(guard,generation);xSemaphoreGive(mutex);
+ xSemaphoreTake(mutex,portMAX_DELAY);
+ bool changed=guard->generation&&guard->generation!=generation;
+ if(guard->generation!=generation)idle_hint_generation=0;
+ actell_guard_session(guard,generation);xSemaphoreGive(mutex);
+ if(changed)actell_bridge_pair_wake(); /* Only the worker closes idle TLS. */
 }
 bool actell_bridge_local_job(unsigned action,unsigned index){
  actell_bridge_init();if(!started)return false;
  job*j=calloc(1,sizeof(*j));if(!j)return false;j->local_action=action;j->local_index=index;
- if(xQueueSend(queue,&j,0)!=pdTRUE){free(j);return false;}return true;
+ xSemaphoreTake(mutex,portMAX_DELAY);
+ bool queued=xQueueSend(queue,&j,0)==pdTRUE;
+ if(queued){pending_jobs++;idle_hint_generation=0;}
+ xSemaphoreGive(mutex);
+ if(!queued)free(j);
+ return queued;
 }
 void actell_bridge_pair_wake(void){
- /* A full queue already wakes the worker. The atomic clock event is retained. */
+ /* A full queue already wakes the worker. Clock/network/session state is retained. */
  job *wake=NULL;
  if(queue)xQueueSend(queue,&wake,0);
 }
@@ -441,6 +523,7 @@ return error("unavailable","Bridge worker unavailable");
  bool queued=false;
  if(admitted==ACTELL_ADMIT_NEW) {
      queued=xQueueSend(queue,&j,0)==pdTRUE;
+     if(queued){pending_jobs++;idle_hint_generation=0;}
      if(!queued)actell_guard_unsent(guard,generation,id,digest);
  }
  xSemaphoreGive(mutex);

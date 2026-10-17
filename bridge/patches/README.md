@@ -5,7 +5,7 @@
 | 补丁 | 内容 | 维护位置 |
 |---|---|---|
 | `muse-gadget-sdk/headless.patch` | 无屏构建入口、文字事件和开发 HTTP 控制台 | 新增文件同时保留于 `bridge/extensions/headless-console/`，需同步 |
-| `muse-gadget-sdk/actell-hook.patch` | 官方命令注册/调用、会话、Actell 设置页、worker 启动、开发 USB setup 与组件依赖接点 | 本补丁；独立组件位于 `bridge/extensions/gadget-actell/` |
+| `muse-gadget-sdk/actell-hook.patch` | 官方命令注册/调用、会话、可选空闲回收提示、Actell 设置页、worker 启动、开发 USB setup 与组件依赖接点 | 本补丁；独立组件位于 `bridge/extensions/gadget-actell/` |
 | `muse-gadget-sdk/doubao-tts.patch` | 可选豆包回复语音、PCM 输出和取消接点 | 本补丁；独立组件位于 `bridge/extensions/doubao-tts/` |
 | `muse-gadget-sdk/waveshare-216-controls.patch` | 仅 2.16 独立按键、可靠 PMU 事件和顶部状态图标 | 本补丁；状态机位于 `bridge/extensions/waveshare-216-controls/` |
 | `muse-gadget-sdk/avatar.patch` | v13 网格/布局分离、重绘保护与编译回退 | `bridge/extensions/avatar/tools/stage.py` 安装；此补丁仅供审查，勿重复应用 |

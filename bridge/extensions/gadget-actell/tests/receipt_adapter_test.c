@@ -8,13 +8,20 @@
 #include "../components/actell_bridge/actell_bridge.c"
 #include "flat_nvs_fake.h"
 static jmp_buf stop_worker;
-static void *items[3];
+static void *items[ACTELL_QUEUE_CAPACITY];
 static unsigned q_count,http_count,action_count,callbacks,pair_polls;
 static int locked;
 static bool reject_send,drop_result,fail_http,fail_hash;
 static unsigned hello_mode,hello_names_checked;
 static bool view_mode,bad_view_image;
 static unsigned invalidations;
+static unsigned connection_releases,idle_polls,idle_closes,idle_notifications;
+static bool hint_during_http;
+static void (*on_idle_http)(void);
+static void completed_hint(void){
+ cJSON *e=cJSON_Parse("{\"type\":\"event\",\"event\":\"task.status\",\"payload\":{\"status\":\"completed\"}}");
+ assert(e);actell_bridge_observe_event(e);cJSON_Delete(e);
+}
 static unsigned view_captures,view_downloads,view_closes,view_capture_closes;
 static const char *expected_hello_name="Muse gadget";
 static cJSON *last_result;
@@ -26,13 +33,13 @@ void *heap_caps_calloc(size_t n,size_t size,unsigned caps){(void)caps;return cal
 SemaphoreHandle_t xSemaphoreCreateMutex(void){return &locked;}
 int xSemaphoreTake(SemaphoreHandle_t m,unsigned wait){(void)m;(void)wait;assert(!locked);locked=1;return 1;}
 int xSemaphoreGive(SemaphoreHandle_t m){(void)m;assert(locked);locked=0;return 1;}
-QueueHandle_t xQueueCreate(unsigned n,size_t size){assert(n==3 && size==sizeof(void*));return items;}
+QueueHandle_t xQueueCreate(unsigned n,size_t size){assert(n==20 && size==sizeof(void*));return items;}
 void vQueueDelete(QueueHandle_t q){(void)q;}
 int xQueueSend(QueueHandle_t q,const void *p,unsigned wait){(void)q;(void)wait;
- if(reject_send){reject_send=false;return 0;}if(q_count==3)return 0;
+ if(reject_send){reject_send=false;return 0;}if(q_count==ACTELL_QUEUE_CAPACITY)return 0;
  items[q_count++]=*(void*const*)p;return pdTRUE;
 }
-int xQueueReceive(QueueHandle_t q,void *p,unsigned wait){(void)q;(void)wait;
+int xQueueReceive(QueueHandle_t q,void *p,unsigned wait){(void)q;assert(wait==18); /* transport's next reap deadline */
  if(!q_count)longjmp(stop_worker,1);
  *(void**)p=items[0];for(unsigned i=1;i<q_count;i++)items[i-1]=items[i];q_count--;return pdTRUE;
 }
@@ -61,6 +68,16 @@ esp_err_t actell_config_load(actell_config *c){memset(c,0,sizeof(*c));strcpy(c->
 esp_err_t actell_http(const actell_config *c,const char *id,const char *body,bool image,uint64_t g,int64_t end,actell_response *r){
  (void)c;(void)image;(void)end;assert(actell_bridge_current(g));http_count++;
  cJSON *envelope=cJSON_Parse(body);const char *op=str(envelope,"op");if(actell_op_mutates(op))action_count++;
+ if(hint_during_http){assert(pending_jobs);completed_hint();assert(!idle_hint_generation);}
+ if(!strcmp(op,"companion.release_idle")){
+  idle_notifications++;if(on_idle_http){void(*hook)(void)=on_idle_http;on_idle_http=NULL;hook();}
+  assert(end-esp_timer_get_time()<=2000000);
+  if(fail_http){cJSON_Delete(envelope);return ESP_FAIL;}
+  cJSON *response=cJSON_CreateObject();cJSON_AddNumberToObject(response,"v",1);cJSON_AddStringToObject(response,"request_id",id);cJSON_AddBoolToObject(response,"ok",true);
+  cJSON_AddBoolToObject(cJSON_AddObjectToObject(response,"result"),"released",true);
+  r->body=(unsigned char*)cJSON_PrintUnformatted(response);r->length=strlen((char*)r->body);strcpy(r->mime,"application/json");
+  cJSON_Delete(response);cJSON_Delete(envelope);return ESP_OK;
+ }
  if(view_mode){
   const cJSON *p=cJSON_GetObjectItemCaseSensitive(envelope,"params");
   if(!strcmp(op,"images.get")){
@@ -77,7 +94,7 @@ esp_err_t actell_http(const actell_config *c,const char *id,const char *body,boo
   }
   cJSON *response=cJSON_CreateObject();cJSON_AddNumberToObject(response,"v",1);cJSON_AddStringToObject(response,"request_id",id);cJSON_AddBoolToObject(response,"ok",true);
   cJSON *out=cJSON_AddObjectToObject(response,"result");cJSON_AddStringToObject(out,"run_id",str(p,"run_id"));
-  if(!strcmp(op,"capabilities")){cJSON_AddBoolToObject(out,"independent_input",true);cJSON_AddItemToArray(cJSON_AddArrayToObject(out,"input_contracts"),cJSON_CreateString(ACTELL_NORMALIZED_INPUT));}
+  if(!strcmp(op,"capabilities")){cJSON_AddBoolToObject(cJSON_AddObjectToObject(out,"performance"),"idle_release",true);cJSON_AddBoolToObject(out,"independent_input",true);cJSON_AddItemToArray(cJSON_AddArrayToObject(out,"input_contracts"),cJSON_CreateString(ACTELL_NORMALIZED_INPUT));}
   else if(!strcmp(op,"runs.open")){cJSON_AddStringToObject(out,"state","open");cJSON_AddNumberToObject(out,"deadline_ms",cJSON_GetObjectItemCaseSensitive(p,"deadline_ms")->valuedouble);}
   else if(!strcmp(op,"runs.cancel")){view_closes++;cJSON_AddStringToObject(out,"state","cancelled");cJSON_AddBoolToObject(out,"execution_released",true);}
   else{
@@ -113,8 +130,11 @@ esp_err_t actell_http(const actell_config *c,const char *id,const char *body,boo
  r->body=(unsigned char*)cJSON_PrintUnformatted(reply);r->length=strlen((char*)r->body);strcpy(r->mime,"application/json");r->http_status=200;
  cJSON_Delete(envelope);cJSON_Delete(reply);return ESP_OK;
 }
+void actell_http_close_idle(void){assert(!locked);idle_closes++;}
 void actell_http_invalidate(actell_http_locator *l){(void)l;invalidations++;}
 void actell_http_locator_close(actell_http_locator *l){assert(!l->session);}
+void actell_http_locator_release(actell_http_locator *l){assert(!locked&&!l->session);connection_releases++;}
+unsigned actell_http_idle_wait_ms(void){assert(!locked);idle_polls++;return 17;}
 esp_err_t actell_http_with_locator(const actell_config *c,const char *id,const char *body,bool image,uint64_t g,int64_t end,actell_response *r,actell_http_locator *locator){
  (void)locator;return actell_http(c,id,body,image,g,end,r);
 }
@@ -175,6 +195,36 @@ static void image_contract_test(void){
  r.length=ACTELL_IMAGE_MAX+1;out=image_result(&r,p,"fixture-rpc",NULL);rejected(out,"image_invalid");free(maximum);cJSON_Delete(p);
 }
 #endif
+static void enqueue_during_idle_rpc(void){
+ queued(invoke("during-release","actell.tap","{\"x\":250,\"y\":750,\"purpose\":\"fixture\"}"));
+ assert(pending_jobs==1);
+}
+static void idle_hint_tests(void){
+ const char *tap="{\"x\":250,\"y\":750,\"purpose\":\"fixture\"}";
+ actell_bridge_session(30);run_jobs();view_mode=true;
+ cJSON *e=cJSON_Parse("{\"type\":\"event\",\"event\":\"task.status\",\"payload\":{\"status\":\"running\"}}");
+ actell_bridge_observe_event(e);cJSON_Delete(e);actell_bridge_observe_event(NULL);assert(!idle_hint_generation);
+ queued(invoke("idle-first","actell.tap",tap));assert(pending_jobs==1);
+ completed_hint();assert(!idle_hint_generation);hint_during_http=true;run_jobs();hint_during_http=false;
+ assert(!pending_jobs&&peer_idle_release_generation==30);
+ unsigned n=idle_notifications,a=action_count;
+ completed_hint();completed_hint();assert(idle_hint_generation==30&&q_count==1);
+ run_jobs();assert(idle_notifications==n+1&&action_count==a&&!pending_jobs);
+ completed_hint();run_jobs();assert(idle_notifications==n+1); /* no business since prior hint */
+ queued(invoke("idle-next","actell.tap",tap));run_jobs();
+ completed_hint();queued(invoke("queued-after-hint","actell.tap",tap));
+ assert(!idle_hint_generation);run_jobs();assert(idle_notifications==n+1);
+ completed_hint();actell_bridge_session(31);assert(!idle_hint_generation);run_jobs();assert(idle_notifications==n+1);
+ queued(invoke("new-generation","actell.tap",tap));run_jobs();
+ completed_hint();on_idle_http=enqueue_during_idle_rpc;run_jobs();
+ assert(idle_notifications==n+2&&!pending_jobs&&callbacks>0); /* admission during cleanup runs afterward */
+ completed_hint();fail_http=true;run_jobs();fail_http=false;
+ assert(idle_notifications==n+3);completed_hint();run_jobs();assert(idle_notifications==n+3); /* no replay/retry */
+ queued(invoke("old-peer","actell.tap",tap));run_jobs();peer_idle_release_generation=0;
+ unsigned closes=idle_closes;completed_hint();run_jobs();assert(idle_notifications==n+3&&idle_closes==closes+1);
+ queued(invoke("obsolete-queued","actell.tap",tap));actell_bridge_session(32);
+ assert(pending_jobs==1);completed_hint();assert(!idle_hint_generation);run_jobs();assert(!pending_jobs);
+}
 int main(void){
  reset();
 #if CONFIG_ACTELL_BRIDGE_IMAGES
@@ -184,11 +234,11 @@ int main(void){
  assert(!invoke("removed","actell.rpc","{}"));assert(!invoke("removed","actell.image","{}"));assert(!invoke("removed","actell.view","{}"));
  rejected(invoke("invalid","actell.tap","{\"x\":true,\"y\":0,\"purpose\":\"Open\"}"),"bad_request");
  actell_bridge_pair_wake();assert(q_count==1&&!items[0]);run_jobs();assert(pair_polls==2&&!http_count&&!q_count);
- for(unsigned i=0;i<4;i++)actell_bridge_pair_wake();assert(q_count==3);run_jobs();assert(pair_polls==6&&!http_count&&!q_count);
+ for(unsigned i=0;i<ACTELL_QUEUE_CAPACITY+1;i++)actell_bridge_pair_wake();assert(q_count==ACTELL_QUEUE_CAPACITY);run_jobs();assert(pair_polls==ACTELL_QUEUE_CAPACITY+3&&!http_count&&!q_count);
  const char *tap="{\"x\":250,\"y\":750,\"purpose\":\"Open item\"}";
  queued(invoke("write-1","actell.tap",tap));queued(invoke("write-1","actell.tap",tap));assert(q_count==1&&!http_count);
  rejected(invoke("write-1","actell.tap","{\"x\":251,\"y\":750,\"purpose\":\"Open item\"}"),"idempotency_conflict");
- run_jobs();assert(action_count==3&&callbacks==1&&last_result);unsigned actions=action_count;
+ run_jobs();assert(action_count==3&&callbacks==1&&last_result&&connection_releases==1&&idle_polls>0);unsigned actions=action_count;
  cJSON *payload=cJSON_GetObjectItemCaseSensitive(last_result,"payload");char operation[129];snprintf(operation,sizeof(operation),"%s",str(payload,"operation_id"));
  rejected(invoke("write-1","actell.tap",tap),"invoke_result_unavailable");assert(action_count==actions);
  drop_result=true;queued(invoke("lost-delivery","actell.tap",tap));run_jobs();assert(!last_result);rejected(invoke("lost-delivery","actell.tap",tap),"invoke_result_unavailable");drop_result=false;
@@ -225,6 +275,17 @@ int main(void){
  config.named_muse_gadget=true;expected_hello_name="Muse Gadget";
  hello_mode=1;assert(actell_pair_hello(&config,&refused)==ESP_OK && !refused);
  assert(hello_names_checked==8);hello_mode=0;
- assert(!q_count);cJSON_Delete(last_result);free(guard);guard=NULL;reset();
- puts("PASS flat adapter: real NVS checkpoint, duplicate/restart protection, conflicts, 2000 status reads, queue/session fences, JPEG and hello");return 0;
+ /* A burst can occupy all twenty waiting slots. Overflow does not consume
+  * a receipt; duplicates do not consume another slot; draining restores room. */
+ actell_bridge_session(10);run_jobs();view_mode=true; /* drain generation wake before burst */
+ unsigned completed_before=callbacks;
+ for(unsigned i=0;i<20;i++){char id[32];snprintf(id,sizeof(id),"burst-%u",i);queued(invoke(id,"actell.tap",tap));}
+ assert(q_count==20&&guard->write_used==20);
+ queued(invoke("burst-0","actell.tap",tap));assert(q_count==20);
+ rejected(invoke("burst-overflow","actell.tap",tap),"busy");assert(q_count==20&&guard->write_used==20);
+ run_jobs();assert(!q_count&&callbacks==completed_before+20);
+ queued(invoke("after-burst","actell.tap",tap));run_jobs();assert(callbacks==completed_before+21);
+ idle_hint_tests();
+ assert(!q_count&&!pending_jobs);cJSON_Delete(last_result);free(guard);guard=NULL;reset();
+ puts("PASS flat adapter: real NVS checkpoint, duplicate/restart protection, conflicts, 2000 status reads, 20-slot queue boundary/recovery, session fences, JPEG and hello");return 0;
 }

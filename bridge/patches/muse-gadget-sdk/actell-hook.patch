@@ -618,3 +618,28 @@
  )
  
  if(CONFIG_MUSE_ENABLED)
+--- a/esp32/components/muse/muse_chat_session.cpp
++++ b/esp32/components/muse/muse_chat_session.cpp
+@@ -76,6 +76,10 @@
+ #include <xplat/noise/core/ClientSession.h>
+ #include <xplat/noise/core/PsaCryptoBackend.h>
+ #include <xplat/noise/core/ServiceCodec.h>
++
++#if CONFIG_ACTELL_BRIDGE
++#include "actell_bridge.h"
++#endif
+ 
+ using namespace musegadgets::noise::core;
+ 
+@@ -1413,6 +1417,11 @@
+     if (strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(line, "type")) ?: "", "event") != 0) {
+         return;   /* the subscription ack */
+     }
++#if CONFIG_ACTELL_BRIDGE
++    /* Optional idle hint, independent of local turns and subscription lifetime.
++     * It never owns a run or performs I/O; missing/duplicate hints are harmless. */
++    actell_bridge_observe_event(line);
++#endif
+     cJSON *seq = cJSON_GetObjectItem(line, "seq");
+     if (cJSON_IsNumber(seq)) {
+         int64_t v = (int64_t)seq->valuedouble;

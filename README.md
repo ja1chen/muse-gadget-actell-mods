@@ -59,15 +59,17 @@ Optional [Waveshare 2.16 controls](bridge/extensions/waveshare-216-controls/READ
 - [Muse skill](bridge/extensions/skills/gadget-actell-remote/SKILL.md)
 - [Provenance and licensing](THIRD_PARTY.md)
 
-Actell command descriptions include the phone-tool workflow and parameter examples; a separate skill injection is not required.
+Actell command descriptions include the phone-tool workflow and parameter examples; a separate skill injection is not required. One worker executes phone requests in order, with up to twenty waiting requests and bounded deadlines.
 Use `actell.screenshot` to receive the phone screen in one call. Flat input tools use normalized coordinates without requiring a screenshot; `actell.call_status` reconciles an original operation. Permanent local invoke history has a finite first-version capacity of at most 512 calls, based on available NVS; see the [integration status](docs/actell-flat-tools-integration-status.md).
-Screenshot transport supports invocation-scoped HTTP/TLS reuse, a short-lived network
-locator cache and negotiated bounded result/release waits. Correlated timing reaches
+Screenshot transport supports bounded HTTP/TLS reuse across consecutive calls, a
+short-lived network locator cache that does not expire live connections, and
+negotiated bounded result/release waits. Correlated timing reaches
 SDK image upload; platform/LLM latency and physical speedups require separate measurement.
 See the [performance contract and analyzer](docs/protocol/ACTELL-PERF-1.md).
 
 The normal bridge profile enables screenshot JPEG return and phone read/write avatar activity. Activity covers the worker request through connection and image delivery, indicates processing rather than execution success, and adds no RPCs or waits; actual animation and model image visibility require target verification.
 Completed phone-tool JSON results use a bounded 256 KiB receiver; oversize reads are reported separately from network failures.
+Transport reuse has an independent ten-minute business-idle limit; authenticated completion hints may reclaim unused TLS/media without cancelling a run or owning the chat subscription. The thirty-second address cache stays separate. See [transport lifecycle](docs/protocol/ACTELL-PERF-1.md).
 Actell settings include a persistent Auto-connect switch; enabled by default, it retries the saved pairing every 30 seconds without replaying actions. Clock synchronization also wakes a disconnected saved pairing immediately, while respecting disabled auto-connect and paused retries.
 Completed duplicate invokes return a safe reconciliation error; read-only queries recycle finished work slots while mutating invoke IDs retain bounded protection against replay.
 Reconnect failures and Cancel preserve saved pairing; only an explicit Forget pairing removes it.

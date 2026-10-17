@@ -14,6 +14,8 @@ static test_txt txt[] = {
     {"host", "other.local"}};
 static mdns_ip_addr_t ip;
 static mdns_result_t result;
+static unsigned wakeups;
+void actell_bridge_pair_wake(void) { wakeups++; }
 esp_netif_t *esp_netif_get_handle_from_ifkey(const char *key) {
     assert(!strcmp(key, "WIFI_STA_DEF"));
     return &wifi;
@@ -44,6 +46,7 @@ int main(void) {
     actell_network_stamp net;
     assert(actell_lan_network(&net) && net.epoch == actell_lan_epoch());
     actell_lan_network_changed();
+    assert(wakeups == 1);
     assert(net.epoch != actell_lan_epoch());
     assert(actell_lan_network(&net) && net.epoch == actell_lan_epoch());
     ip.addr.type = ESP_IPADDR_TYPE_V4;

@@ -14,7 +14,7 @@
 #include <time.h>
 
 #define LOCATOR_TTL_US (30LL * 1000000)
-#define SESSION_IDLE_US (4LL * 1000000)
+#define SESSION_IDLE_US (10LL * 60 * 1000000)
 #define SESSION_REQUESTS 16
 #define CACHED_CONNECT_MS 2000
 
@@ -33,12 +33,19 @@ typedef struct {
     char pem[4096], hostname[256];
     struct ifreq iface;
     int64_t last_used;
+    uint64_t owner_generation; /* Business owner; hello has its own request fence. */
     unsigned requests;
 } http_session;
 
-/* All HTTP callers run on the single bridge worker. No credentials, sockets or
- * authorization results survive an invocation in this cache. */
+/* Worker-only. Address caching and live TLS ownership have separate lifetimes.
+ * The idle slot never grants authorization or retains a response/body pointer. */
 static actell_http_locator cached;
+static actell_http_locator idle;
+
+void actell_http_close_idle(void) {
+    actell_http_locator_close(&idle);
+    memset(&idle, 0, sizeof(idle));
+}
 
 void actell_http_locator_close(actell_http_locator *locator) {
     http_session *session = locator ? locator->session : NULL;
@@ -51,18 +58,61 @@ void actell_http_locator_close(actell_http_locator *locator) {
 }
 void actell_http_invalidate(actell_http_locator *locator) {
     memset(&cached, 0, sizeof(cached));
+    actell_http_close_idle();
     actell_http_locator_close(locator);
     if (locator) { locator->address[0] = 0; locator->located_at = 0; }
 }
 static bool network_equal(actell_network_stamp a, actell_network_stamp b) {
     return a.epoch == b.epoch && a.ip == b.ip && a.netmask == b.netmask && a.gateway == b.gateway;
 }
-static bool locator_valid(const actell_http_locator *l, const actell_config *c,
-                          actell_network_stamp network, int64_t now) {
-    return l->address[0] && now >= l->located_at && now - l->located_at < LOCATOR_TTL_US &&
+static bool locator_matches(const actell_http_locator *l, const actell_config *c,
+                            actell_network_stamp network) {
+    return l->address[0] &&
         !strcmp(l->origin, c->origin) && !strcmp(l->client, c->client) &&
         !strcmp(l->fingerprint, c->fingerprint) && network_equal(l->network, network) &&
         actell_lan_address(inet_addr(l->address));
+}
+static bool locator_fresh(const actell_http_locator *l, const actell_config *c,
+                          actell_network_stamp network, int64_t now) {
+    return locator_matches(l, c, network) && now >= l->located_at &&
+        now - l->located_at < LOCATOR_TTL_US;
+}
+static bool session_live(const actell_http_locator *l, actell_network_stamp network,
+                         uint64_t generation, int64_t now) {
+    const http_session *s = l->session;
+    return s && !s->receiver.response && s->owner_generation == generation &&
+        actell_bridge_current(generation) && network_equal(l->network, network) &&
+        actell_lan_address(inet_addr(l->address)) && now >= s->last_used &&
+        now - s->last_used < SESSION_IDLE_US && s->requests < SESSION_REQUESTS;
+}
+unsigned actell_http_idle_wait_ms(void) {
+    http_session *s = idle.session;
+    if (!s) return 30000;
+    actell_network_stamp network;
+    int64_t now = esp_timer_get_time();
+    if (!actell_lan_network(&network) || !session_live(&idle, network, s->owner_generation, now)) {
+        actell_http_close_idle();
+        ESP_LOGI("actell.rpc", "phase=idle_close reason=expired_or_invalid");
+        return 30000;
+    }
+    unsigned remaining = (unsigned)((SESSION_IDLE_US - (now - s->last_used) + 999) / 1000);
+    return remaining < 30000 ? remaining : 30000; /* Pairing maintenance keeps its own cadence. */
+}
+void actell_http_locator_release(actell_http_locator *locator) {
+    http_session *s = locator ? locator->session : NULL;
+    if (!s) return;
+    actell_http_locator_close(&idle);
+    memset(&idle, 0, sizeof(idle));
+    actell_network_stamp network;
+    if (!actell_lan_network(&network) ||
+        !session_live(locator, network, s->owner_generation, esp_timer_get_time())) {
+        actell_http_locator_close(locator);
+        return;
+    }
+    idle = *locator;
+    idle.operation_id[0] = 0;
+    locator->session = NULL; /* Ownership moves; never copy an owning pointer. */
+    s->receiver.end = 0;
 }
 static bool current(const sink *s) {
     return esp_timer_get_time() < s->end && actell_bridge_current(s->generation) &&
@@ -135,6 +185,9 @@ esp_err_t actell_http(const actell_config *c, const char *id, const char *body, 
 esp_err_t actell_http_with_locator(const actell_config *c, const char *id, const char *body,
                                   bool image, uint64_t generation, int64_t expires,
                                   actell_response *r, actell_http_locator *invocation) {
+    /* One worker and one socket. Hello may borrow a business socket, but never
+     * changes its owner or extends its business-idle deadline. A cold hello
+     * closes its own connection instead of creating a permanent idle pool. */
     actell_http_locator temporary = {0}, *locator = invocation ? invocation : &temporary;
     int64_t began = esp_timer_get_time(), end = began + 15000000;
     if (expires < end) end = expires;
@@ -169,11 +222,29 @@ esp_err_t actell_http_with_locator(const actell_config *c, const char *id, const
             actell_http_invalidate(locator); return ESP_ERR_INVALID_STATE;
         }
         int64_t now = esp_timer_get_time();
+        bool borrowed = false;
+        if (!locator->session && idle.session) {
+            const http_session *pooled = idle.session;
+            uint64_t owner = invocation ? generation : pooled->owner_generation;
+            if (locator_matches(&idle, c, network) && session_live(&idle, network, owner, now)) {
+                char operation[65]; memcpy(operation, locator->operation_id, sizeof(operation));
+                *locator = idle; memcpy(locator->operation_id, operation, sizeof(operation));
+                borrowed = true;
+            } else actell_http_locator_close(&idle);
+            memset(&idle, 0, sizeof(idle));
+        }
+        http_session *existing = locator->session;
+        uint64_t owner = invocation || !existing ? generation : existing->owner_generation;
+        if (existing && (!locator_matches(locator, c, network) ||
+                         !session_live(locator, network, owner, now)))
+            actell_http_locator_close(locator);
         unsigned cache_hit = 0;
-        if (locator_valid(locator, c, network, now)) cache_hit = 1;
+        /* An authenticated, live socket does not expire with its discovery
+         * record. TTL only controls locating a peer before a new connection. */
+        if (locator->session || locator_fresh(locator, c, network, now)) cache_hit = 1;
         else {
             actell_http_locator_close(locator); locator->address[0] = 0;
-            if (locator_valid(&cached, c, network, now)) {
+            if (locator_fresh(&cached, c, network, now)) {
                 char operation[65]; memcpy(operation, locator->operation_id, sizeof(operation));
                 *locator = cached; memcpy(locator->operation_id, operation, sizeof(operation));
                 cache_hit = 2;
@@ -203,10 +274,6 @@ esp_err_t actell_http_with_locator(const actell_config *c, const char *id, const
             actell_http_invalidate(locator); return ESP_ERR_INVALID_STATE;
         }
         http_session *session = locator->session;
-        if (session && (now < session->last_used || now - session->last_used >= SESSION_IDLE_US ||
-                        session->requests >= SESSION_REQUESTS)) {
-            actell_http_locator_close(locator); session = NULL;
-        }
         bool reused = session != NULL;
         int connect_timeout = timeout_left(end);
         if (cache_hit && connect_timeout > CACHED_CONNECT_MS) connect_timeout = CACHED_CONNECT_MS;
@@ -214,6 +281,7 @@ esp_err_t actell_http_with_locator(const actell_config *c, const char *id, const
             r->transport_stage = "client_init";
             session = calloc(1, sizeof(*session));
             if (!session) return ESP_ERR_NO_MEM;
+            session->owner_generation = generation;
             strcpy(session->pem,c->pem); strcpy(session->hostname,hostname);
             if (!actell_lan_interface(&session->iface)) { free(session); return ESP_ERR_INVALID_STATE; }
             char url[280]; snprintf(url,sizeof(url),"https://%s:%d/v1/rpc",locator->address,port);
@@ -233,10 +301,14 @@ esp_err_t actell_http_with_locator(const actell_config *c, const char *id, const
         bool headers_ok = sign_request(c,id,body,stamp,nonce,signature);
 #define SET_HEADER(k,v) do { if (esp_http_client_set_header(http,k,v) != ESP_OK) headers_ok=false; } while (0)
         SET_HEADER("Host",c->origin+8); SET_HEADER("Content-Type","application/json");
-        SET_HEADER("Connection",invocation?"keep-alive":"close");
+        SET_HEADER("Connection",invocation || borrowed ? "keep-alive" : "close");
         SET_HEADER("X-Actell-Time",stamp); SET_HEADER("X-Actell-Nonce",nonce);
         SET_HEADER("X-Actell-Signature",signature);
         if (operation_id_valid(locator->operation_id)) SET_HEADER("X-Actell-Operation-Id",locator->operation_id);
+        else {
+            esp_err_t removed = esp_http_client_delete_header(http,"X-Actell-Operation-Id");
+            if (removed != ESP_OK && removed != ESP_ERR_NOT_FOUND) headers_ok=false;
+        }
 #undef SET_HEADER
         if (esp_http_client_set_method(http,HTTP_METHOD_POST) != ESP_OK ||
             esp_http_client_set_timeout_ms(http,connect_timeout) != ESP_OK) headers_ok=false;
@@ -301,8 +373,8 @@ esp_err_t actell_http_with_locator(const actell_config *c, const char *id, const
         if (e == ESP_OK && r->expected_bytes > 0 && received.length != (size_t)r->expected_bytes) {
             r->transport_stage="read_body"; e=ESP_FAIL;
         }
-        ESP_LOGI("actell.rpc", "phase=http_timing operation_id=%s request_id=%s image=%d attempt=%u cache_hit=%u connection_reused=%d discovery_ms=%lld connect_ms=%lld read_ms=%lld total_ms=%lld sent_bytes=%u bytes=%u ok=%d",
-                 trace,id,image,attempt,cache_hit,reused,(long long)discovery_ms,(long long)connect_ms,
+        ESP_LOGI("actell.rpc", "phase=http_timing operation_id=%s request_id=%s image=%d attempt=%u cache_hit=%u connection_reused=%d connection_borrowed=%d discovery_ms=%lld connect_ms=%lld read_ms=%lld total_ms=%lld sent_bytes=%u bytes=%u ok=%d",
+                 trace,id,image,attempt,cache_hit,reused,borrowed,(long long)discovery_ms,(long long)connect_ms,
                  (long long)read_ms,(long long)((esp_timer_get_time()-began)/1000),(unsigned)sent,(unsigned)received.length,e==ESP_OK);
         if (e != ESP_OK) {
             actell_buffer_free(&received);
@@ -312,8 +384,12 @@ esp_err_t actell_http_with_locator(const actell_config *c, const char *id, const
             return e;
         }
         cached = *locator; cached.session=NULL; cached.operation_id[0]=0;
-        session->requests++; session->last_used=esp_timer_get_time(); session->receiver.response=NULL;
-        if (!invocation || !esp_http_client_is_persistent_connection(http)) actell_http_locator_close(locator);
+        session->requests++;
+        if (invocation) session->last_used=esp_timer_get_time();
+        session->receiver.response=NULL;
+        if (!esp_http_client_is_persistent_connection(http) || (!invocation && !borrowed))
+            actell_http_locator_close(locator);
+        else if (!invocation) actell_http_locator_release(locator);
         r->transport_stage=NULL; r->body=received.data; r->length=received.length;
         return ESP_OK;
     }

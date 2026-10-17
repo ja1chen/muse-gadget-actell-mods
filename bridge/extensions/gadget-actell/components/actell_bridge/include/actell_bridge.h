@@ -33,6 +33,9 @@ bool actell_bridge_handles(const char *command);
 bool actell_bridge_json_safe(const char *data,size_t length);
 size_t actell_bridge_result_limit(void);
 void actell_bridge_session(uint64_t generation);
+/* Optional authenticated event hint. No subscription ownership, I/O, or run
+ * cancellation; the worker may reclaim only resources unused by queued work. */
+void actell_bridge_observe_event(const cJSON *event);
 cJSON *actell_bridge_invoke(const char *command,const cJSON *params,const char *request_id,uint64_t generation);
 #ifdef __cplusplus
 }

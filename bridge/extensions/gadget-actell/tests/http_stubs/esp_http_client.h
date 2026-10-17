@@ -16,6 +16,7 @@ typedef struct {
 #define HTTP_METHOD_POST 1
 esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *);
 int esp_http_client_set_header(esp_http_client_handle_t,const char *,const char *);
+esp_err_t esp_http_client_delete_header(esp_http_client_handle_t,const char *);
 int esp_http_client_set_method(esp_http_client_handle_t,int);
 esp_err_t esp_http_client_open(esp_http_client_handle_t,int);
 int esp_http_client_write(esp_http_client_handle_t,const char *,int);

@@ -44,6 +44,17 @@ class LatencyReportTests(unittest.TestCase):
         self.assertEqual(sample['transport_failures'],1)
         self.assertTrue(sample['ambiguous_or_incomplete'])
 
+    def test_borrowed_connection_is_distinct_from_address_cache_and_fallback(self):
+        operation='d'*64
+        rows=[f'cache_hit=1 connection_reused=1 connection_borrowed=1 ok=0 attempt=0',
+              f'cache_hit=0 connection_reused=0 connection_borrowed=0 ok=1 attempt=1']
+        events=[latency.event(f'phase=http_timing operation_id={operation} {row}') for row in rows]
+        sample=latency.summarize(events)['samples'][0]
+        self.assertEqual(sample['borrowed_connection_attempts'],1)
+        self.assertEqual(sample['new_connection_attempts'],1)
+        self.assertEqual(sample['transport_failures'],1)
+        self.assertEqual(sample['route'],'locator_recovery')
+
     def test_capture_failures_and_phase_metrics_remain_visible(self):
         operation='b'*64
         events=[latency.event(f'phase=http_timing operation_id={operation} cache_hit=0 connection_reused=0 ok=0 connect_ms=123'),
