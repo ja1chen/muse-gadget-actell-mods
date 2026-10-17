@@ -24,11 +24,11 @@ if not a.output.is_relative_to(ROOT/'local'):
     p.error('Generated libraries and reports must remain under local/')
 a.output.mkdir(parents=True, exist_ok=True)
 source = A/'src/muse_pixel_160.c'
-assert hashlib.sha256(source.read_bytes()).hexdigest() == 'acb4f40ed2d99b8c1f259c37d1ded1b810d7dc10ab374a0576b5c50e1402c3d2'
+assert hashlib.sha256(source.read_bytes()).hexdigest() == json.loads((A/'source-manifest.json').read_text())['sha256']['src/muse_pixel_160.c']
 
 class Pose(C.Structure):
     _fields_ = [('mode', C.c_int), ('t', C.c_float), ('mode_t', C.c_float),
-                ('level', C.c_float), ('happy', C.c_float)]
+                ('level', C.c_float), ('happy', C.c_float), ('mouth_level', C.c_float), ('mouth_level_valid', C.c_bool)]
 
 
 def compile_lib(name, flags=(), src=source):
@@ -76,7 +76,10 @@ for i in range(6000):
                 rng.random()*5, rng.random(), rng.random())
     action = rng.randrange(3)
     for left, right in pairs:
-        assert render(libs[left], pose, action) == render(libs[right], pose, action), (i, left, right)
+        # The historical v13 oracle predates the intentional quiet-speaking closure.
+        # check-mouth-close.py covers that behavior against the exact shaded baseline.
+        comparison_pose = Pose(pose.mode,pose.t,pose.mode_t,max(pose.level,.050001),pose.happy) if left == 'v13_fallback' and pose.mode == 4 else pose
+        assert render(libs[left], comparison_pose, action) == render(libs[right], comparison_pose, action), (i, left, right)
 # Count cache rebuilds separately from production timing.
 s = source.read_text()
 anchor = ' float X=(cx+.5f)*2.5f,Y=(hy+.5f)*2.5f+nod_offset;'

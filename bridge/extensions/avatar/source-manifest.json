@@ -5,9 +5,10 @@
   "sha256": {
     "src/muse_pixel.c": "d3731211b57e2e97e4606801533ba89555baa9459d5f7e5186917847172c6ec1",
     "src/actell_avatar.c": "466d668477a0073ff38befc67a4f71156e539c4cb3602ddcd22bd1474d820ac6",
-    "src/muse_pixel_160.c": "acb4f40ed2d99b8c1f259c37d1ded1b810d7dc10ab374a0576b5c50e1402c3d2",
+    "src/muse_pixel_160.c": "941c115476609cca46e0acccf058ad9c39d20503bf3dc4451b975a4fe5a79372",
     "src/muse_pixel_dispatch.c": "eb86dd7e9a01d0628450f4bb72b98c8a98173f3f3a3b46d633135af05f57ce61",
-    "tests/reference_v13.c": "766eaebf4864d4466f53b2da3e9378eec00cd4aa8b460fc876f960ee49889dfd"
+    "tests/reference_v13.c": "766eaebf4864d4466f53b2da3e9378eec00cd4aa8b460fc876f960ee49889dfd",
+    "src/actell_mouth_envelope.h": "b4be274ce60c1448e1e0fa14034ec604aad40bd61d67f34364572ef339b152cf"
   },
   "performance_update": {
     "source": "Actell-Muse-v13-Listening-Performance-Fix",
@@ -23,5 +24,45 @@
     "default_shading": true,
     "default_dynamic_light": false,
     "offline_antialiasing": false
+  },
+  "mouth_close_update": {
+    "source": "mouth-close-handoff",
+    "license": "Apache-2.0",
+    "before_sha256": "acb4f40ed2d99b8c1f259c37d1ded1b810d7dc10ab374a0576b5c50e1402c3d2",
+    "after_sha256": "33ba3c099bcd6ad3a611b376069dd915014bb73c143ef8b57ee2cd8f0186529b",
+    "normalized_level_threshold": 0.05,
+    "closed_mouth_native_pixels": [
+      9,
+      1
+    ],
+    "ui_level_envelope_changed": false,
+    "legacy_64_changed": false
+  },
+  "mouth_envelope_update": {
+    "source": "mouth-envelope-handoff",
+    "license": "Apache-2.0",
+    "attack_ms": 15,
+    "release_ms": 40,
+    "close_level": 0.05,
+    "open_level": 0.07,
+    "input": "raw PCM level",
+    "global_level_envelope_changed": false,
+    "legacy_64_visual_changed": false
+  },
+  "mouth_stable_update": {
+    "source": "mouth-stable-handoff",
+    "license": "Apache-2.0",
+    "amplitude_attack_ms": 60,
+    "amplitude_release_ms": 140,
+    "quiet_hold_ms": 60,
+    "close_fade_ms": 80,
+    "state_activity_threshold": 0.02,
+    "observer": "single UI consumer with peak capture and mode generation",
+    "mouth_heights": [
+      1,
+      16
+    ],
+    "global_level_envelope_changed": false,
+    "legacy_64_visual_changed": false
   }
 }

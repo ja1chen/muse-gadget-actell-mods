@@ -5,7 +5,7 @@ import argparse, ctypes as C, json, math, os, subprocess, tarfile, tempfile, tim
 from PIL import Image, ImageDraw, ImageFont
 ROOT=Path(__file__).resolve().parents[1]
 class Pose(C.Structure):
-    _fields_=[('mode',C.c_int),('t',C.c_float),('mode_t',C.c_float),('level',C.c_float),('happy',C.c_float)]
+    _fields_=[('mode',C.c_int),('t',C.c_float),('mode_t',C.c_float),('level',C.c_float),('happy',C.c_float),('mouth_level',C.c_float),('mouth_level_valid',C.c_bool)]
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--sdk-archive',type=Path,required=True)
@@ -20,7 +20,7 @@ def main():
         assert hashlib.sha256(args.sdk_archive.read_bytes()).hexdigest() == '0a7548404b4aa25ad0cc3ad0f9fee1ad3a3245a03a14b02293da3a83bde69359'
         component=tmp/'sdk/esp32/components/muse';component.mkdir(parents=True)
         with tarfile.open(args.sdk_archive) as ar:
-            for name in ['muse_pixel.h','muse_state.h','muse_ui.c','Kconfig']:
+            for name in ['muse_pixel.h','muse_state.h','muse_state.c','muse_ui.c','Kconfig']:
                 member=next(m for m in ar.getmembers() if m.name.endswith('/components/muse/'+name))
                 (component/name).write_bytes(ar.extractfile(member).read())
         subprocess.run([sys.executable,str(ROOT/'tools/stage.py'),'--sdk-root',str(tmp/'sdk')],check=True)

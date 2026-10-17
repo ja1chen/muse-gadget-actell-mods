@@ -36,7 +36,7 @@ int main(void) {
     static uint16_t pixels[514*514];
     for(int m=0;m<MUSE_MODE_COUNT;m++) for(int a=0;a<3;a++) for(int f=0;f<80;f++) {
         clock_ms=(uint32_t)f*40;actell_avatar_set_activity((actell_avatar_activity_t)a,1500);
-        muse_pose_t pose={(muse_mode_t)m,f*.04f,f*.04f,(f%11)/10.0f,f%7==0?.8f:0};
+        muse_pose_t pose={(muse_mode_t)m,f*.04f,f*.04f,(f%11)/10.0f,f%7==0?.8f:0,0,false};
         muse_pixel_render(&pose);
         const int sizes[]={1,63,64,65,320,512,900,-3};
         for(unsigned s=0;s<sizeof(sizes)/sizeof(sizes[0]);s++) {
@@ -49,10 +49,20 @@ int main(void) {
             if(n>8) muse_pixel_scale(pixels+1,n,3,n-2,5,n-1);
         }
     }
+#if !defined(CONFIG_MUSE_AVATAR_V2) || !CONFIG_MUSE_AVATAR_V2
+    /* The legacy renderer must ignore the appended independent channel. */
+    static uint16_t old_mouth[4096], new_mouth[4096];
+    muse_pixel_set_size(64);
+    muse_pose_t legacy={.mode=MUSE_MODE_SPEAKING,.t=1,.mode_t=1,.level=.5f};
+    muse_pixel_render(&legacy);muse_pixel_scale(old_mouth,64,0,63,0,63);
+    legacy.mouth_level=0;legacy.mouth_level_valid=true;
+    muse_pixel_render(&legacy);muse_pixel_scale(new_mouth,64,0,63,0,63);
+    assert(memcmp(old_mouth,new_mouth,sizeof(old_mouth))==0);
+#endif
     static uint16_t base[4096], extra[4096];
     muse_pixel_set_size(64);
     for(int m=0;m<MUSE_MODE_COUNT;m++) {
-        muse_pose_t p={(muse_mode_t)m,1,1,.5f,0};
+        muse_pose_t p={(muse_mode_t)m,1,1,.5f,0,0,false};
         actell_avatar_set_enabled(false);muse_pixel_render(&p);
         muse_pixel_scale(base,64,0,63,0,63);
         actell_avatar_set_enabled(true);actell_avatar_set_activity(ACTELL_AVATAR_READ,1000);
@@ -62,10 +72,10 @@ int main(void) {
         muse_pixel_render(&p);muse_pixel_scale(extra,64,0,63,0,63);
         assert(memcmp(base,extra,sizeof base)==0); /* no completion celebration */
     }
-    muse_pose_t off={MUSE_MODE_OFF,2,2,0,0};
+    muse_pose_t off={MUSE_MODE_OFF,2,2,0,0,0,false};
     muse_pixel_render(&off);muse_pixel_scale(base,64,0,63,0,63);
     for(int n=0;n<4096;n++) assert(base[n]==0);
-    muse_pose_t bad={MUSE_MODE_IDLE,NAN,INFINITY,INFINITY,NAN};
+    muse_pose_t bad={MUSE_MODE_IDLE,NAN,INFINITY,INFINITY,NAN,0,false};
     muse_pixel_render(&bad);
     bad.t=3.4e38f;bad.mode_t=-INFINITY;muse_pixel_render(&bad);
     muse_pixel_scale(pixels,INT_MAX,INT_MIN,INT_MAX,0,1);

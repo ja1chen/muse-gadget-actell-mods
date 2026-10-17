@@ -19,9 +19,34 @@
  
  typedef struct {
      muse_mode_t mode;
+@@ -38,6 +48,8 @@
+     float mode_t;    /* seconds in current mode */
+     float level;     /* 0..1 live audio level */
+     float happy;     /* 0..1 pet reaction */
++    float mouth_level; /* 0..1 dedicated fast-release mouth channel */
++    bool mouth_level_valid; /* false: renderer falls back to level */
+ } muse_pose_t;
+ 
+ /* Accent colour of a mode (for the surrounding UI), as 0xRRGGBB. */
 --- a/esp32/components/muse/muse_ui.c
 +++ b/esp32/components/muse/muse_ui.c
-@@ -315,12 +315,16 @@
+@@ -39,6 +39,7 @@
+ #include "muse_mem.h"
+ #include "muse_menu.h"
+ #include "muse_pixel.h"
++#include "avatar/actell_mouth_envelope.h"
+ #include "muse_settings.h"
+ #include "muse_settings_ui.h"
+ #include "muse_state.h"
+@@ -136,6 +137,7 @@
+ static bool s_ready;
+ 
+ static float s_level;
++static actell_mouth_envelope_t s_mouth;
+ static int s_shown_state = -1;
+ static const char *s_shown_name;
+ static const char *s_idle_name = "READY";   /* idle's label: set by the Wi-Fi state */
+@@ -315,12 +317,16 @@
  
  static void invalidate_muse(void)
  {
@@ -40,7 +65,7 @@
      int n = 0;
      for (int cy = 0; cy < MUSE_PX_H; cy++) {
          int32_t y = cell_px(cy, size);
-@@ -706,9 +710,9 @@
+@@ -706,9 +712,9 @@
      int pitch = lv_font_get_line_height(font) + CAPTION_LINE_SPACE;
  
      answer_layout_t *l = &s_answers[ANSWER_HEARD];
@@ -52,7 +77,7 @@
      l->y = s_big_y;
      l->align = LV_TEXT_ALIGN_CENTER;
      int h = 3 * pitch - CAPTION_LINE_SPACE;
-@@ -727,7 +731,7 @@
+@@ -727,7 +733,7 @@
  
      l = &s_answers[ANSWER_READ];
      int status_bottom = (muse_board->rim_controls ? 40 : 20 + s_dy) + 16 - s_h / 2;
@@ -61,7 +86,7 @@
      l->y = status_bottom + 2 + l->px / 2;   /* its sparkles clear of the status line */
      l->align = LV_TEXT_ALIGN_LEFT;
      art_bottom = l->y + l->px / 2 - ART_BLANK_ROWS * MINI_CELL_PX;
-@@ -865,7 +869,7 @@
+@@ -865,7 +871,7 @@
      int cap_top = cap_bottom - cap_h;
      int meter_y = cap_top - 6 - METER_SEG_PX / 2;
      int art_bottom = meter_y - METER_SEG_PX / 2 - 4;
@@ -70,7 +95,28 @@
  
      /* The character. */
      muse_image_init();
-@@ -1625,7 +1629,7 @@
+@@ -1570,7 +1576,10 @@
+     image_sync();
+     float mode_t;
+     muse_mode_t mode = muse_state_mode(&mode_t);
+-    float now = (float)esp_timer_get_time() / 1e6f;
++    int64_t mouth_now_us = esp_timer_get_time();
++    float now = (float)mouth_now_us / 1e6f;
++    muse_mouth_sample_t mouth_sample = muse_state_take_mouth_sample();
++    float mouth_level = actell_mouth_step(&s_mouth, &mouth_sample, mouth_now_us);
+ 
+     if (mode != s_last_mode) {
+         if (mode == MUSE_MODE_LISTENING) {
+@@ -1606,6 +1615,8 @@
+         .mode_t = mode_t,
+         .level = s_level,
+         .happy = muse_state_happiness(),
++        .mouth_level = mouth_level,
++        .mouth_level_valid = true,
+     };
+     muse_pixel_render(&pose);
+     invalidate_muse();
+@@ -1625,7 +1636,7 @@
      s_tall = s_small && s_h >= s_w + 64;
      /* Small screens keep room for the status line and button icons. A narrow
       * one is as wide as Muse gets, in whole pixels. */
@@ -79,7 +125,7 @@
      if (short_landscape) {
          /* Leave the header's first 40 rows and bottom captions clear. */
          s_canvas_px = s_h * 2 / 3;
-@@ -1634,14 +1638,14 @@
+@@ -1634,14 +1645,14 @@
          s_canvas_px = muse_board->avatar_px;
      }
      if (s_canvas_px > s_w) {
@@ -113,3 +159,94 @@
 +        Disable to compile only the legacy Actell renderer. Remove the stage to
 +        restore the SDK official/custom avatar selection behavior.
 +# ACTELL_AVATAR_V2_END
+--- a/esp32/components/muse/muse_state.c
++++ b/esp32/components/muse/muse_state.c
+@@ -16,6 +16,7 @@
+ 
+ #include "muse_state.h"
+ 
++#include <math.h>
+ #include <stdarg.h>
+ #include <stdio.h>
+ #include <string.h>
+@@ -35,6 +36,8 @@
+ static volatile muse_mode_t s_mode = MUSE_MODE_BOOT;
+ static volatile int64_t s_mode_since_us;
+ static volatile float s_level;
++static portMUX_TYPE s_mouth_lock = portMUX_INITIALIZER_UNLOCKED;
++static muse_mouth_sample_t s_mouth_sample;
+ static volatile float s_progress;
+ static volatile int64_t s_last_poke_us;
+ static volatile int64_t s_happy_until_us;
+@@ -69,15 +72,23 @@
+ 
+ void muse_state_set_mode(muse_mode_t mode)
+ {
++    portENTER_CRITICAL(&s_mouth_lock);
+     if (mode == s_mode) {
++        portEXIT_CRITICAL(&s_mouth_lock);
+         return;
+     }
+     /* Shutting down wins over the voice pipeline finishing a turn. */
+     if (s_mode == MUSE_MODE_OFF && mode != MUSE_MODE_IDLE) {
++        portEXIT_CRITICAL(&s_mouth_lock);
+         return;
+     }
++    s_mouth_sample = (muse_mouth_sample_t){
++        .generation = s_mouth_sample.generation + 1u,
++        .speaking = mode == MUSE_MODE_SPEAKING,
++    };
+     s_mode_since_us = esp_timer_get_time();
+     s_mode = mode;
++    portEXIT_CRITICAL(&s_mouth_lock);
+ }
+ 
+ muse_mode_t muse_state_mode(float *secs_in_mode)
+@@ -91,6 +102,27 @@
+ void muse_state_set_level(float level)
+ {
+     s_level = level < 0 ? 0 : (level > 1 ? 1 : level);
++    float observer_level = isfinite(level) ? fminf(fmaxf(level, 0), 1) : 0;
++    portENTER_CRITICAL(&s_mouth_lock);
++    if (s_mouth_sample.speaking) {
++        if (observer_level > s_mouth_sample.peak) {
++            s_mouth_sample.peak = observer_level;
++        }
++        if (observer_level > 0.02f) {
++            s_mouth_sample.last_voice_us = esp_timer_get_time();
++            s_mouth_sample.heard_voice = true;
++        }
++    }
++    portEXIT_CRITICAL(&s_mouth_lock);
++}
++
++muse_mouth_sample_t muse_state_take_mouth_sample(void)
++{
++    portENTER_CRITICAL(&s_mouth_lock);
++    muse_mouth_sample_t sample = s_mouth_sample;
++    s_mouth_sample.peak = 0;
++    portEXIT_CRITICAL(&s_mouth_lock);
++    return sample;
+ }
+ 
+ float muse_state_level(void)
+--- a/esp32/components/muse/muse_state.h
++++ b/esp32/components/muse/muse_state.h
+@@ -52,6 +52,17 @@
+ void muse_state_set_level(float level);
+ float muse_state_level(void);
+ 
++/* Independent mouth observer. Single UI consumer takes and clears peak.
++ * Last voice timestamp and speaking generation persist until mode change. */
++typedef struct {
++    float peak;
++    int64_t last_voice_us;
++    uint32_t generation;
++    bool speaking;
++    bool heard_voice;
++} muse_mouth_sample_t;
++muse_mouth_sample_t muse_state_take_mouth_sample(void);
++
+ /* Progress of the current phase (recording length or playback), 0..1. */
+ void muse_state_set_progress(float progress);
+ float muse_state_progress(void);

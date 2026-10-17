@@ -189,6 +189,7 @@ void muse_pixel_render(const muse_pose_t *p) {
     float t=isfinite(p->t)?fmodf(fabsf(p->t),120.0f):0;
     float mt=isfinite(p->mode_t)?fminf(fmaxf(p->mode_t,0),3600):0;
     float level=isfinite(p->level)?clamp(p->level):0;
+    float mouth_level=p->mouth_level_valid ? (isfinite(p->mouth_level)?clamp(p->mouth_level):0) : level;
     muse_mode_t m=(unsigned)p->mode<MUSE_MODE_COUNT?p->mode:MUSE_MODE_IDLE;
     actell_avatar_activity_t action=actell_avatar_activity();
     /* Phone props never obscure boot, shutdown, errors or active conversation. */
@@ -263,7 +264,30 @@ void muse_pixel_render(const muse_pose_t *p) {
     float surprise=0;
     if(action==ACTELL_AVATAR_READ){surprise=smooth((phase-2.0f)/.22f)*(1-smooth((phase-4.0f)/.35f));}
     if(surprise>.02f)precise_oval(cx,ey+7,1.45f,.5f+1.4f*surprise,INK);
-    else if(m==MUSE_MODE_SPEAKING) precise_oval(cx,ey+7,1.8f,.65f+level*2.5f,INK);
+    else if(m==MUSE_MODE_SPEAKING) {
+      if(!p->mouth_level_valid) {
+        /* Existing callers keep the problem-1 level mapping. */
+        if(level<=.05f) {
+          int mx=(int)lroundf((cx+.5f)*2.5f);
+          int my=(int)lroundf((ey+7.5f)*2.5f+nod_offset);
+          for(int x=mx-4;x<=mx+4;x++)native_pixel(x,my,INK);
+        } else precise_oval(cx,ey+7,1.8f,.65f+level*2.5f,INK);
+      } else {
+        /* Integer-height ellipse: every height 1..16 exists, including 2/4/etc.
+         * No 1-line-to-minimum-oval gate jump at a raw audio threshold. */
+        int mx=(int)lroundf((cx+.5f)*2.5f);
+        int my=(int)lroundf((ey+7.5f)*2.5f+nod_offset);
+        int h=1+(int)lroundf(mouth_level*15.0f);
+        int top=my-h/2;
+        for(int y=0;y<h;y++) {
+          float ny=((float)y+.5f-(float)h*.5f)/((float)h*.5f);
+          for(int x=-4;x<=4;x++) {
+            float nx=(float)x/4.5f;
+            if(nx*nx+ny*ny<=1.0f)native_pixel(mx+x,top+y,INK);
+          }
+        }
+      }
+    }
     else if(m==MUSE_MODE_LISTENING) precise_oval(cx,ey+7,1.7f,1.1f,INK);
     else if(m==MUSE_MODE_ERROR || m==MUSE_MODE_OFF) rect(cx-2,ey+7,5,1,INK);
     else {pixel(cx-2,ey+6,INK);rect(cx-1,ey+7,3,1,INK);pixel(cx+2,ey+6,INK);}

@@ -22,7 +22,7 @@ a.output.mkdir(parents=True, exist_ok=True)
 
 class Pose(C.Structure):
     _fields_ = [('mode', C.c_int), ('t', C.c_float), ('mode_t', C.c_float),
-                ('level', C.c_float), ('happy', C.c_float)]
+                ('level', C.c_float), ('happy', C.c_float), ('mouth_level', C.c_float), ('mouth_level_valid', C.c_bool)]
 
 
 source = (AVATAR / 'src/muse_pixel_160.c').read_text()

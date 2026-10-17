@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory(prefix='actell-avatar-host-', dir=temporary_roo
     component.mkdir(parents=True)
     with tarfile.open(ARCHIVE) as archive:
         originals = {name: archive.extractfile('esp32/components/muse/' + name).read()
-                     for name in ('muse_pixel.h', 'muse_state.h', 'muse_ui.c', 'Kconfig')}
+                     for name in ('muse_pixel.h', 'muse_state.h', 'muse_state.c', 'muse_ui.c', 'Kconfig')}
     for name, data in originals.items():
         (component / name).write_bytes(data)
     stage = [sys.executable, str(AVATAR / 'tools/stage.py'), '--sdk-root', str(sdk)]
@@ -53,6 +53,20 @@ with tempfile.TemporaryDirectory(prefix='actell-avatar-host-', dir=temporary_roo
         '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-g',
         '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
         '-DACTELL_AVATAR_TEST', '-I' + str(AVATAR / 'include'), '-I' + str(component)]
+    # Exercise actual elapsed-time envelope code with sanitizers, independent of rendering.
+    envelope = temp / 'mouth-envelope'
+    subprocess.run(common + ['-I' + str(AVATAR/'src'), str(AVATAR/'tests/mouth_envelope_test.c'),
+                            '-lm', '-o', str(envelope)], check=True)
+    tested = subprocess.run([str(envelope)], check=True, text=True, capture_output=True,
+                            env={**os.environ, 'ASAN_OPTIONS':'detect_leaks=0'})
+    report['mouth_envelope'] = tested.stdout.strip()
+    print(tested.stdout.strip(), flush=True)
+    ui_source = (component/'muse_ui.c').read_text()
+    assert 'muse_mouth_sample_t mouth_sample = muse_state_take_mouth_sample();' in ui_source
+    assert 's_level += (level - s_level) * (level > s_level ? 0.6f : 0.2f);' in ui_source
+    start = ui_source.index('float mouth_level = actell_mouth_step(')
+    assert start < ui_source.index('if (muse_menu_tick(now))', start)
+    assert ui_source.index('return;',start) > start
     for branch, flags, variant in [(0, [], 'legacy'), (1, [], 'shaded'),
                                     (1, ['-DMUSE_AVATAR_SHADING=0'], 'flat'),
                                     (1, ['-DMUSE_AVATAR_DYNAMIC_LIGHT=1'], 'dynamic')]:
@@ -82,6 +96,11 @@ with tempfile.TemporaryDirectory(prefix='actell-avatar-host-', dir=temporary_roo
     shaded_output = ROOT / 'local/validation/avatar-shaded'
     subprocess.run([sys.executable,str(AVATAR/'tools/check-shaded.py'),'--include',str(component),'--output',str(shaded_output)],check=True)
     report['shaded'] = json.loads((shaded_output/'shaded.json').read_text())
+    mouth_output = ROOT / 'local/validation/avatar-mouth-stable'
+    subprocess.run([sys.executable,str(AVATAR/'tools/check-mouth-close.py'),'--include',str(component),'--output',str(mouth_output)],check=True)
+    report['mouth_close'] = json.loads((mouth_output/'mouth.json').read_text())
+    subprocess.run([sys.executable,str(AVATAR/'tools/check-mouth-observer.py'),'--include',str(component),'--output',str(mouth_output)],check=True)
+    report['mouth_observer'] = json.loads((mouth_output/'observer-timing-results.json').read_text())
     report['pixels'] = json.loads((temp / 'pixel-report.json').read_text())
     performance = ROOT / 'local/validation/avatar-listening'
     subprocess.run([sys.executable, str(AVATAR / 'tools/check-listening-performance.py'),

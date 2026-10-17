@@ -16,7 +16,7 @@ priority. Tool completion adds no celebration or replay.
 
 This is original geometric artwork, licensed under the root Apache-2.0 license;
 no Jollybot code or imagery is included. The supplied unoptimized v13 renderer
-is retained as `tests/reference_v13.c` for exact-v13 fallback pixel checks (rounded face and shading disabled). Integration
+is retained as `tests/reference_v13.c` for exact-v13 fallback pixel checks (rounded face and shading disabled, excluding the intentional quiet-speaking mouth fix). Integration
 targets Muse SDK `812c46f9fe42b69d916613a9dc702cbac5ff7b54`.
 
 ## Rounded face and static shading
@@ -36,10 +36,49 @@ These are C compiler definitions, not new sdkconfig/menuconfig options:
 - `MUSE_AVATAR_DYNAMIC_LIGHT=1`: add pitch-dependent lighting; default is 0.
 - `MUSE_AVATAR_EXACT_DISTANCE_PREFILTER=0`: use exact distances for A/B checks.
 
-Default rounded face and shading are enabled. Disable both to reproduce the
-original v13 pixels. `CONFIG_MUSE_AVATAR_V2=n` still selects the unchanged 64-grid
+Default rounded face and shading are enabled. Disable both for the
+original face and palette; the independent speaking-mouth behavior below still
+applies to the 160-grid UI. Exact original-v13 comparisons use the legacy mouth
+channel above its quiet threshold. `CONFIG_MUSE_AVATAR_V2=n` still selects the unchanged 64-grid
 character. Offline antialiasing is deferred and is absent from the active source,
 staging and build paths; no generated AA assets are required.
+
+## Stable speaking mouth
+
+The 160-grid mouth uses a dedicated state observer and UI envelope. Every
+`muse_state_set_level()` keeps its original shared-level assignment and separately
+captures the maximum normalized PCM level since the previous UI read. Levels
+above 0.02 update the last-voice timestamp; a brief zero does not clear it. One
+UI consumer calls `muse_state_take_mouth_sample()` before menu/image/off-screen
+early returns. Its short FreeRTOS critical section copies the sample and clears
+only the peak, preventing a producer update from being lost between read/clear.
+Mode changes increment a generation and reset voice/peak state, so even an exit
+and reentry between UI ticks resets the mouth. OFF checks and mode writes share
+the same lock. These are task-context APIs, not ISR interfaces.
+
+`src/actell_mouth_envelope.h` uses 60 ms amplitude attack and 140 ms release, while
+silence closure is separate: hold for 60 ms after the last level above 0.02, then
+fade the opening baseline to zero over 80 ms. Continuous silence closes at 140 ms
+plus UI quantization; asynchronous host schedules measured 140–219 ms. Short
+20–80 ms block gaps no longer force a threshold crossing. Quiet input above 0.02
+still animates. Sustained input at or below 0.02 can be treated as silence; weak
+background energy above it can keep a small mouth. This is energy observation,
+not speech recognition, and these are model results rather than device latency.
+
+The independent channel draws each integer mouth height from 1 through 16,
+avoiding the former one-line-to-small-ellipse jump. The original UI `s_level`
+0.6/0.2 smoothing still drives the meter, eyes and other effects. Voice, audio,
+TTS, MP3 and PCM playback code are unchanged; no new recording, frame/audio cache
+or heap allocation is introduced. Current level/mode call sites in the combined
+SDK are task paths. Lock scheduling cost and actual sound/animation stability
+need device acceptance.
+
+Appended `muse_pose_t.mouth_level` and `mouth_level_valid` fields require a complete
+component rebuild. Zero-initialized callers without a valid channel preserve the
+previous quiet-mouth mapping at `pose.level <= 0.05`. The 64-grid renderer ignores
+the channel and retains its old appearance. A late asynchronous callback from an
+old audio session still cannot be attributed to that session without an upstream
+session token; the observer follows the mode at the time of the callback.
 
 ## Optional, isolated activity layer
 
@@ -105,7 +144,7 @@ This selects the old Actell character, not the official SDK avatar.
 python3 bridge/extensions/avatar/tools/stage.py --sdk-root local/build/sdk-copy --rollback
 ```
 
-Rollback restores the three verified SDK files and removes only unchanged staged
+Rollback restores the five verified SDK files and removes only unchanged staged
 files. It refuses if later font/UI patches changed them. For a combined SDK,
 recreate a clean staged copy in the documented order to omit avatar; do not force
 rollback through later edits. Restore the backed-up custom avatar if needed.
@@ -161,9 +200,9 @@ python3 bridge/extensions/muse-fonts/tools/check-stage.py --with-avatar --with-t
 The first command verifies the pinned archive and direct/staged legacy, shaded, flat and dynamic-light renderer
 branches with ASan/UBSan: each renders 1,680 frames at eight sizes and exercises
 strips, TTL, toggle, clock wrap, invalid values and voice priority. It compares
-2,400 v13 cases against the original oracle, checks 199 dirty-frame pairs, ESP
+2,400 v13 cases against the original oracle, using speaking levels above the new closure threshold, checks 199 dirty-frame pairs, ESP
 interface compilation, patch equivalence, idempotence and protected rollback.
-The shaded checks compare 18,000 pairs for static/dynamic prefilter equivalence and original-v13 fallback, and confirm 74 head-cache rebuilds in 200 listening frames. It also compares 12,000 complete 160×160 frames with the distance prefilter
+Dedicated mouth checks verify threshold-adjacent float32 levels, 9×1 closure, non-finite normalization, 3,000 unchanged non-speaking frames, 1,000 unchanged open-speaking frames, 200 quiet frames unchanged outside the mouth, and 1,000 independent-channel frames with unchanged pixels outside the mouth, 1,000 exact legacy-channel fallback frames, and all mouth heights 1–16. Sanitizer envelope tests cover 100/200/500 ms pauses, generation/reentry, non-finite input and clock boundaries. Observer tests extract the actual staged state functions: 1,280 asynchronous producer/UI schedule and phase cases, plus 10,000 concurrent producer updates using a host pthread mutex. These tests do not model ESP32 dual-core scheduling. The shaded checks compare 18,000 pairs for static/dynamic prefilter equivalence and original-v13 fallback, and confirm 74 head-cache rebuilds in 200 listening frames. It also compares 12,000 complete 160×160 frames with the distance prefilter
 off/on and records separate operation counts and uninstrumented host timings.
 See [listening performance](../../../docs/avatar-listening-performance.md) for
 limits, diagnosis and target A/B steps. LeakSanitizer is disabled; this is not a passed leak check. Reports are written
@@ -190,7 +229,7 @@ renderer. Current build/map reports live under `local/validation/avatar-v13/`.
 The build matrix checks the same partition table, both 25,600-byte arrays in
 external BSS, unchanged scale table and dirty scratch, no AA symbols, and a
 64-byte internal-BSS increase for shading over the same rounded flat renderer.
-The private shaded image passed inactive-slot writing and readback, with the
+The earlier private shaded image, before the quiet-speaking fix, passed inactive-slot writing and readback, with the
 previous app, NVS, pairing and shared resources preserved. A 45-second startup
 observation confirmed font readiness and the Muse session, without panic or
 watchdog. These checks do not establish appearance or concurrent performance.
