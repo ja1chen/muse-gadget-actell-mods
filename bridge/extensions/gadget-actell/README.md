@@ -122,6 +122,14 @@ There is no fixed 60-second run or five-second idle release. The pinned SDK lack
 platform task/cancel events; no task-wide cancellation or lossless initial-result
 recovery is claimed.
 
+Capability preflight failures retain the original error code and message in the
+outer result, including available transport stage, HTTP status and receive progress.
+They remain `failed` / `not_sent`: no run or phone tool is submitted, and the
+capability request is not automatically retried. Missing error details retain the
+generic `capability_unavailable` fallback; a successful response with unsupported
+features remains `incompatible_capability`. This does not persist the failure
+details in the operation journal or change historical status lookup.
+
 Before phone I/O, a permanent NVS checkpoint binds the invoke fingerprint,
 canonical arguments, pairing ownership and fixed deadline. Full SHA-256-derived
 IDs address original calls; 128-bit stored fingerprints fail closed on conflict.

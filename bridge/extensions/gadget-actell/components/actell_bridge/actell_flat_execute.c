@@ -120,8 +120,8 @@ cJSON *actell_flat_execute(const char *command,const cJSON *a,const char *invoke
  cJSON *reply=NULL;bool owned=false;
  if(admission==1){
   reply=request(e,"capabilities",cJSON_CreateObject());
-  bool received=ok(reply),compatible=received&&actell_flat_capability(cJSON_GetObjectItemCaseSensitive(reply,"payload"));cJSON_Delete(reply);
-  if(!received)return result(false,"failed","not_sent","not_applicable",&record,"capability_unavailable");
+  if(!ok(reply))return remote_failure(&record,reply,false,"capability_unavailable");
+  bool compatible=actell_flat_capability(cJSON_GetObjectItemCaseSensitive(reply,"payload"));cJSON_Delete(reply);
   if(!compatible)return result(false,"failed","not_sent","not_applicable",&record,"incompatible_capability");
   if(!available(e))return result(false,"failed","not_sent","not_applicable",&record,"deadline_exceeded");
   cJSON *p=params(&record,false);cJSON_AddNumberToObject(p,"deadline_ms",record.deadline_ms);cJSON_AddStringToObject(p,"input_contract",ACTELL_NORMALIZED_INPUT);cJSON_AddStringToObject(p,"image_contract","thumbnail-v2");
