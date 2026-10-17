@@ -2,7 +2,7 @@
 
 ## 实现与边界
 
-当前圆润着色版继续保留下述预筛机制；本文旧资源/真机记录对应着色接入前的版本，当前边界见 [角色说明](../bridge/extensions/avatar/README.md#rounded-face-and-static-shading)。
+默认 RAW-AA 走离线姿态与 coverage 路径；程序式回退继续保留下述预筛机制。本文旧资源/真机记录对应着色接入前的版本，当前边界见 [角色说明](../bridge/extensions/avatar/README.md#rounded-face-and-static-shading)。
 
 此前接入 `Actell-Muse-v13-Listening-Performance-Fix` 的渲染器增量，来源及前后 SHA-256 记录在 [source manifest](../bridge/extensions/avatar/source-manifest.json)。原版 v13 参考实现仍保存在 `tests/reference_v13.c`。权威源码位于 `bridge/extensions/avatar/src/`；SDK 暂存副本不能代替工程源码。
 

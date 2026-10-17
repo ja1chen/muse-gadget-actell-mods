@@ -5,10 +5,15 @@
   "sha256": {
     "src/muse_pixel.c": "d3731211b57e2e97e4606801533ba89555baa9459d5f7e5186917847172c6ec1",
     "src/actell_avatar.c": "466d668477a0073ff38befc67a4f71156e539c4cb3602ddcd22bd1474d820ac6",
-    "src/muse_pixel_160.c": "941c115476609cca46e0acccf058ad9c39d20503bf3dc4451b975a4fe5a79372",
-    "src/muse_pixel_dispatch.c": "eb86dd7e9a01d0628450f4bb72b98c8a98173f3f3a3b46d633135af05f57ce61",
+    "src/muse_pixel_160.c": "29732efc1bd8d166831906c81a6f6c60bb4f3f204ef2ccd66615a92c41a88969",
+    "src/muse_pixel_dispatch.c": "1d6525738ae2b8a4674cd29c47ac1c2c33334c0320c976fc5a39a39ac2bbb4fa",
     "tests/reference_v13.c": "766eaebf4864d4466f53b2da3e9378eec00cd4aa8b460fc876f960ee49889dfd",
-    "src/actell_mouth_envelope.h": "b4be274ce60c1448e1e0fa14034ec604aad40bd61d67f34364572ef339b152cf"
+    "src/actell_mouth_envelope.h": "b4be274ce60c1448e1e0fa14034ec604aad40bd61d67f34364572ef339b152cf",
+    "src/muse_pixel_geometry.c": "941c115476609cca46e0acccf058ad9c39d20503bf3dc4451b975a4fe5a79372",
+    "src/muse_pixel_aa_assets.h": "3e3d4f73e5f188439416c63164c2c1d08f641b2d689fc751576cd86160b12752",
+    "src/muse_pixel_aa_fallback.inc": "b41f17c4fc25b1b488ad37209d4ed92d2cb667b8511db40d12e44235b9c01d00",
+    "src/muse_pixel_aa_resource.h": "957777ae2ae65292c6df8a60d2885fdacdb19d305120479ffc9c89d13b0036ff",
+    "src/muse_pixel_aa_init.c": "ef0d6132863e17ab3e04e709a513fa864908a0d1e5d0c8d8ea3a696533b41aa3"
   },
   "performance_update": {
     "source": "Actell-Muse-v13-Listening-Performance-Fix",
@@ -64,5 +69,16 @@
     ],
     "global_level_envelope_changed": false,
     "legacy_64_visual_changed": false
+  },
+  "raw_aa_update": {
+    "source": "raw-aa-handoff",
+    "license": "Apache-2.0",
+    "raw_bytes": 2269340,
+    "raw_sha256": "822ccdc0eff4dc3648ff6cb540796a7f811912c1c8284cd89d6647d234780794",
+    "resource_id": "avatar.aa",
+    "resource_format": "actell-avatar-aa-raw-v1",
+    "buffers_external_bytes": 102400,
+    "runtime_supersampling": false,
+    "compressed": false
   }
 }

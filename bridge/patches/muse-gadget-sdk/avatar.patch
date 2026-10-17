@@ -28,6 +28,14 @@
  } muse_pose_t;
  
  /* Accent colour of a mode (for the surrounding UI), as 0xRRGGBB. */
+@@ -45,6 +57,7 @@
+ 
+ /* Render one frame into Muse's own MUSE_PX_W x MUSE_PX_H grid. */
+ void muse_pixel_render(const muse_pose_t *pose);
++void muse_avatar_aa_init(void); /* Startup only, before decoder/draw publication. */
+ 
+ /* Size (square, in screen pixels) muse_pixel_scale() blows the grid up to. */
+ void muse_pixel_set_size(int px);
 --- a/esp32/components/muse/muse_ui.c
 +++ b/esp32/components/muse/muse_ui.c
 @@ -39,6 +39,7 @@
@@ -116,7 +124,15 @@
      };
      muse_pixel_render(&pose);
      invalidate_muse();
-@@ -1625,7 +1636,7 @@
+@@ -1615,6 +1626,7 @@
+ 
+ esp_err_t muse_ui_start(void)
+ {
++    muse_avatar_aa_init();
+     s_w = muse_board->width;
+     s_h = muse_board->height;
+     /* The full layout assumes room for the 466 px board's header and bottom
+@@ -1625,7 +1637,7 @@
      s_tall = s_small && s_h >= s_w + 64;
      /* Small screens keep room for the status line and button icons. A narrow
       * one is as wide as Muse gets, in whole pixels. */
@@ -125,7 +141,7 @@
      if (short_landscape) {
          /* Leave the header's first 40 rows and bottom captions clear. */
          s_canvas_px = s_h * 2 / 3;
-@@ -1634,14 +1645,14 @@
+@@ -1634,14 +1646,14 @@
          s_canvas_px = muse_board->avatar_px;
      }
      if (s_canvas_px > s_w) {

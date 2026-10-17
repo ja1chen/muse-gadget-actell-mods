@@ -6,7 +6,7 @@
 
 `ACTRES01` 容器使用小端 64 字节头：8 字节 magic，四个 uint32（容器主版本、目录长度、条目数量、包总长度），32 字节目录 SHA-256，8 字节置零保留字段。主版本与 reader ABI 均为 1。规范化 UTF-8 JSON 目录紧随头部，必须装入首个 64KiB 块，目录最多 8KiB、32 条资源。
 
-目录记录 `reader_abi`、候选 profile 和 entries。每项包含不带主机路径的逻辑 ID、格式版本标识、包内绝对 offset、length、payload SHA-256。资源起点均按 64KiB 对齐；空隙填充 0xFF。包不填充至分区全长。当前字体条目为 `caption.font`，格式 `lv-font-conv-bin-1.5.3`；另附完整 OFL、来源 manifest 和候选转换/覆盖报告。格式可容纳图片、动画等其他条目，不代表设备已实现这些资源的解码器。
+目录记录 `reader_abi`、候选 profile 和 entries。每项包含不带主机路径的逻辑 ID、格式版本标识、包内绝对 offset、length、payload SHA-256。资源起点均按 64KiB 对齐；空隙填充 0xFF。包不填充至分区全长。当前字体条目为 `caption.font`，格式 `lv-font-conv-bin-1.5.3`；另附完整 OFL、来源 manifest 和候选转换/覆盖报告。格式可容纳图片、动画等其他条目。角色扩展现支持 `avatar.aa` / `actell-avatar-aa-raw-v1` 的独立只读映射；接入、容量核查及保留字体的部署规则见 [RAW-AA 说明](avatar-raw-aa.md)。其他资源格式仍须对应读取器。
 
 两个 app 槽位共享同一只读资源包，应用只能读取。部署工具才负责更新包，普通启动不写、不格式化资源区。每个应用需要声明可接受的 reader ABI、必需的逻辑 ID 与格式；不匹配则回退内置原字体。主机 `verify --require` 已检查这份契约，设备端已实现相同的版本、边界与哈希检查；主机测试不代表 OTA 回滚已通过。哈希提供完整性，不替代既有认证与签名机制。
 

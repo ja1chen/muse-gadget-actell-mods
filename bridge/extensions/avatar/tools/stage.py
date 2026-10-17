@@ -19,6 +19,7 @@ def integrate_mouth(ui, header):
     """
     ui=edit_once(ui, '#include "muse_pixel.h"\n',
                  '#include "muse_pixel.h"\n#include "avatar/actell_mouth_envelope.h"\n')
+    ui=edit_once(ui, 'esp_err_t muse_ui_start(void)\n{', 'esp_err_t muse_ui_start(void)\n{\n    muse_avatar_aa_init();')
     ui=edit_once(ui, 'static float s_level;\n',
                  'static float s_level;\nstatic actell_mouth_envelope_t s_mouth;\n')
     ui=edit_once(ui, '    float now = (float)esp_timer_get_time() / 1e6f;',
@@ -34,6 +35,7 @@ def integrate_mouth(ui, header):
                     '    float happy;     /* 0..1 pet reaction */\n'
                     '    float mouth_level; /* 0..1 dedicated fast-release mouth channel */\n'
                     '    bool mouth_level_valid; /* false: renderer falls back to level */')
+    header=edit_once(header, 'void muse_pixel_render(const muse_pose_t *pose);', 'void muse_pixel_render(const muse_pose_t *pose);\nvoid muse_avatar_aa_init(void); /* Startup only, before decoder/draw publication. */')
     return ui, header
 
 
@@ -158,6 +160,7 @@ config MUSE_AVATAR_V2
            'muse_pixel_legacy.c':(ROOT/'src/muse_pixel.c').read_bytes(),
            'muse_pixel_160.c':(ROOT/'src/muse_pixel_160.c').read_bytes(),
            'actell_mouth_envelope.h':(ROOT/'src/actell_mouth_envelope.h').read_bytes(),
+           **{f:(ROOT/'src'/f).read_bytes() for f in ['muse_pixel_aa_assets.h','muse_pixel_aa_resource.h','muse_pixel_aa_fallback.inc','muse_aa_partition.c','muse_aa_partition.h','muse_pixel_aa_init.c']},
            'actell_avatar.c':(ROOT/'src/actell_avatar.c').read_bytes(),
            'actell_avatar.h':(ROOT/'include/actell_avatar.h').read_bytes()}
     for f in files:

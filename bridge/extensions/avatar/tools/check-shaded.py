@@ -23,8 +23,8 @@ a.output = a.output.resolve()
 if not a.output.is_relative_to(ROOT/'local'):
     p.error('Generated libraries and reports must remain under local/')
 a.output.mkdir(parents=True, exist_ok=True)
-source = A/'src/muse_pixel_160.c'
-assert hashlib.sha256(source.read_bytes()).hexdigest() == json.loads((A/'source-manifest.json').read_text())['sha256']['src/muse_pixel_160.c']
+source = A/'src/muse_pixel_geometry.c'
+assert hashlib.sha256(source.read_bytes()).hexdigest() == json.loads((A/'source-manifest.json').read_text())['sha256']['src/muse_pixel_geometry.c']
 
 class Pose(C.Structure):
     _fields_ = [('mode', C.c_int), ('t', C.c_float), ('mode_t', C.c_float),
