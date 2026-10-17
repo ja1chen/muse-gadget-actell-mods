@@ -82,44 +82,72 @@ fail discovery rather than silently use a weaker connection.
 
 ## Official command interface
 
-The firmware advertises self-contained iPhone-tool instructions, exact operation
-fields, discovery/polling examples and approval/reconciliation rules in the official
-`commands_v2` descriptions. No separate model-context injection is required. Start
-with `{"op":"capabilities","params_json":"{}"}`, then use the returned tool schemas.
-See the [call sequence](../skills/gadget-actell-remote/SKILL.md#discover-and-perform-one-read-only-call).
-Native regression executes the real registration serializer with synthetic identity
-and the optional tools enabled, ensuring it stays within the SDK's 8 KiB limit.
-Runtime audit lines contain only operation/outcome/fixed state words, never IDs,
-phone contents, parameters, credentials or tool results.
+The firmware advertises self-contained phone-tool descriptions and direct parameters
+in official `commands_v2`; no separate model-context injection is required. Read the
+[usage skill](../skills/gadget-actell-remote/SKILL.md). The gadget, not the model,
+negotiates capabilities. Native regression executes the actual SDK serializer with
+synthetic identity and optional tools to enforce the 8 KiB budget. Runtime audit
+lines contain only fixed operation/state words and capacity counts, never IDs,
+phone content, parameters, credentials or results.
 
-`actell.rpc` requires string `op` and string `params_json` containing a bounded,
-unique-key JSON object. Allowed operations: `companion.hello`, `capabilities`,
-`runs.open`, `runs.get`, `runs.cancel`, `tools.call`, `calls.get`. `runs.open` always
-negotiates `image_contract:"thumbnail-v2"`. Responses become the official
-`{ok,payload}` / `{ok:false,error}` result; every actual HTTP request uses exact-body
-ACTELL1 HMAC with unique nonce over verified TLS. IDs/deadlines/scopes and execution
-approval are authoritatively validated by Actell.
+The advertised interface is nine flat commands: `actell.screenshot`, `actell.tap`,
+`actell.drag`, `actell.home`, `actell.list_apps`, `actell.launch_app`,
+`actell.type_text`, `actell.wait` and `actell.call_status`. There are no public
+`actell.rpc/image/view` aliases. Screenshot returns the official JPEG-base64 payload
+and metadata in one invocation; inputs use normalized-display-v1 coordinates,
+0..1000, without image/run identifiers or mandatory capture. Process arguments
+are omitted until the platform array transport is verified.
 
-`actell.image` accepts `params_json` with `run_id,image_id,generation`; it is not
-advertised unless `CONFIG_ACTELL_BRIDGE_IMAGES=y` and PSRAM is enabled. It verifies
-request/image/generation identity, geometry revision, SHA256, JPEG marker dimensions,
-1280-pixel edge and 256-KiB budget. No 8-MiB original or base64 JSON RPC is allowed.
-The small JPEG is converted to the official `camera.capture` result shape
-`payload:{format:"jpeg-base64",data_base64:...}` plus image/geometry metadata.
+Screenshot delivery retains one validated JPEG and small metadata, then generates
+base64 directly into the SDK's existing control body chunks. The queued image
+has explicit ownership and is freed on delivery, queue rejection, session change
+or disconnect. No full base64 string or image-sized serialized JSON is required
+on this path; the receiver still gets one ordinary `link.result` JSON with
+`format: jpeg-base64` and `data_base64`. The wire limit includes the virtual
+base64 bytes. This reduces resident memory, not wire size; JPEG remains fully
+buffered for identity, dimensions and hash checks before transmission.
 
-**Model-visibility gate:** upstream `main/app.c` camera capture establishes this wire
-shape; `noise_control.cpp` forwards payload and fragments outgoing body. This is not
-evidence that a real Muse model can see this image. Until a real runtime experiment
-verifies visual input, keep images disabled and do not claim screenshot-based control.
-Coordinates are delivered-image pixels, with the original image ID/generation and
-geometry revision; never scale a second time. JPEG header/hash checks are not a full
-pixel decode. The iOS thumbnail producer must decode successfully before delivery.
+Within one outer phone invocation, successful HTTP exchanges can reuse their
+Bonjour network locator. A new invocation discovers again; identity/subnet changes
+or any failed exchange invalidate reuse. Each request still establishes TLS with
+the saved hostname/certificate and signs its own envelope. No failed phone action
+is automatically replayed. Diagnostics report numeric discovery, TLS, body-read
+and total times, plus image upload bytes/chunks/time; they do not log content.
+These optimizations require a new firmware deployment and physical timing/visual
+acceptance; host tests or compilation alone do not establish a speedup.
+
+The gadget negotiates capabilities and internally manages one run per invocation.
+It submits once, polls original IDs, and closes only its own confirmed terminal run.
+There is no fixed 60-second run or five-second idle release. The pinned SDK lacks
+platform task/cancel events; no task-wide cancellation or lossless initial-result
+recovery is claimed.
+
+Before phone I/O, a permanent NVS checkpoint binds the invoke fingerprint,
+canonical arguments, pairing ownership and fixed deadline. Full SHA-256-derived
+IDs address original calls; 128-bit stored fingerprints fail closed on conflict.
+The journal uses an atomic reserved header plus bounded chunks; it recovers commit
+interruptions before admitting another operation. Available NVS entries determine
+capacity, at most 512 accepted invocations, without partition changes or automatic
+record deletion. Full or failed storage stops new actions. Existing queries do not
+allocate invocation records. This finite lifetime capacity is an explicit first
+version limitation, not a long-term archival solution.
+
+The phone retains bounded thumbnail-v2 results for 30 minutes independently of input
+admission. Status reads can return the original image after run closure. A completed
+capture with an unavailable JPEG remains capture success but outer delivery failure;
+it never silently captures again. JPEG size, hash, identity and dimensions retain
+existing checks. Image visibility and actual phone input require separate physical
+acceptance; source and host tests are not deployment evidence.
+
+See [the shared contract](../../../docs/protocol/FLAT-TOOLS-1.md),
+[adapter protocol](../../../docs/protocol/gadget-v2.md) and
+[integration status](../../../docs/actell-flat-tools-integration-status.md).
 
 ## Bounds and outcome semantics
 
-- One worker; three queued requests; parameters ≤4 KiB; HTTP requests ≤8 KiB;
+- One worker; three queued requests; flat arguments bounded by their schema; JSON ingress and HTTP requests ≤64 KiB;
   JSON responses ≤256 KiB; JPEG ≤256 KiB; result payload under 360 KiB.
-- Registration is small (two commands maximum), preserving the SDK's 8-KiB budget.
+- Registration contains nine phone commands when images are enabled, within the SDK's 8-KiB budget.
   Full board registration must still be measured in target/runtime validation.
 - Sixty-second advertised timeout, 40-second local queue deadline, 15-second network
   observation budget plus bounded discovery. Socket I/O can consume its configured
@@ -128,20 +156,17 @@ pixel decode. The iOS thumbnail producer must decode successfully before deliver
   are recycled, so sequential read-only queries do not exhaust a session budget.
   A retained pending duplicate shares the original completion attempt. A completed
   duplicate returns `invoke_result_unavailable` synchronously; it does not imply
-  delivery or nonexecution, and never resubmits a phone action. Reconcile original
-  run/call IDs using a new read-only invocation. Once an old read-only slot has been
+  delivery or nonexecution, and never resubmits a phone action. Query the operation ID using a new read-only invocation. Once an old read-only slot has been
   recycled, that read-only ID may enter a fresh read-only query rather than a cached result;
   the peer may still reject that ID under its anti-replay policy. Prefer a new
   transport invocation ID when reconciling the same original run/call.
 - Accepted mutating invocation IDs also have independent SHA-256 tombstones for the
   whole control generation, including uncertain outcomes and lost result delivery.
   These fences survive work-slot recycling and apply even if a duplicate changes
-  its operation. There are 1,024 fences: ordinary writes stop at 992, leaving 32
-  additional entries for `runs.cancel`. At full write capacity only new writes are
+  its operation. There are 1,024 fences: ordinary writes stop at 992, retaining the internal stop reserve. At full write capacity only new writes are
   rejected with `write_receipt_limit`; read-only reconciliation still works.
   Do not reconnect or create replacement action IDs to bypass this protection.
-  This is a bounded local policy, not an unbounded result cache or durable deduplication
-  across control generations/reboots. Existing phone run/call reconciliation remains required.
+  This RAM policy supplements the permanent NVS invoke checkpoint; neither is an unbounded result cache. Existing phone run/call reconciliation remains required.
 - Receipt state uses about 41 KiB, preferring PSRAM; initialization fails closed if
   allocation fails. Queue rejection rolls back only a receipt known never to have
   entered the worker. Session changes fence queued old work. Each body-write chunk
@@ -156,7 +181,7 @@ pixel decode. The iOS thumbnail producer must decode successfully before deliver
   queue. It cannot undo an already-dispatched phone action. Do not automatically
   create a replacement call ID for an unknown action.
 - No avatar events are inferred from request submission or a pending approval.
-  Optional `CONFIG_ACTELL_BRIDGE_AVATAR_ACTIVITY` is default OFF and uses the
+  The normal bridge profile enables `CONFIG_ACTELL_BRIDGE_AVATAR_ACTIVITY`, using the
   unchanged approved avatar setters only for authenticated running/succeeded
   read/write results, with 1500/350-ms leases, 16 tracked IDs, terminal fencing
   and no waits/I/O. Missing renderer has no effect on RPC completion.
@@ -287,3 +312,5 @@ window is requested automatically; no service-name/phone-selection list is shown
 Multiple eligible windows cause no pairing traffic and ask the user to keep only
 the target window open. First-time TLS trust, phone approval, and saved identity
 rules are unchanged. No parallel or sequential fan-out to other phones occurs.
+
+Phone activity feedback follows the outer worker request through connection, phone result polling and image delivery; it indicates processing, not confirmed execution. Internal run cleanup cannot erase that pose, and completed display records are reused instead of disabling feedback after a fixed number of calls. The existing command budget bounds the pose without adding RPCs or waits. Listening and speech retain avatar priority. See [presentation events](../../../docs/optional-avatar-events.md).

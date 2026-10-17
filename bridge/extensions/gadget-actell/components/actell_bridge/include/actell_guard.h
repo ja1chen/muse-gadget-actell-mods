@@ -4,7 +4,7 @@
 #include <stdint.h>
 #define ACTELL_HISTORY 64
 #define ACTELL_ID_MAX 128
-#define ACTELL_REQUEST_MAX 8192
+#define ACTELL_REQUEST_MAX (64 * 1024)
 /* A completed app list is much larger than its queued receipt. Match the
  * bounded thumbnail budget while remaining below the official result budget. */
 #define ACTELL_JSON_MAX (256 * 1024)
@@ -15,7 +15,7 @@
 #define ACTELL_WRITE_HISTORY 1024
 #define ACTELL_STOP_RESERVE 32
 #define ACTELL_ID_DIGEST 32
-typedef struct { char id[ACTELL_ID_MAX+1]; bool finished,mutates; } actell_receipt;
+typedef struct { char id[ACTELL_ID_MAX+1]; bool finished,mutates,has_payload_digest; unsigned char payload_digest[32]; } actell_receipt;
 typedef struct {
  uint64_t generation;
  unsigned used,next_slot,write_used;

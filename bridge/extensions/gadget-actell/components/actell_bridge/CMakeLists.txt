@@ -1,7 +1,7 @@
 # ESP-IDF expands dependencies before sdkconfig; only source selection is conditional.
 set(srcs "")
 if(CONFIG_ACTELL_BRIDGE)
-    list(APPEND srcs "actell_bridge.c" "actell_commands.c" "actell_buffer.c" "actell_guard.c" "actell_http.c" "actell_clock.c" "actell_provision.c" "actell_activity.c" "actell_slan.c" "actell_pairing.c" "actell_lan_transport.c" "actell_discovery.c" "actell_leaf.c")
+    list(APPEND srcs "actell_bridge.c" "actell_commands.c" "actell_buffer.c" "actell_image_stream.c" "actell_guard.c" "actell_http.c" "actell_clock.c" "actell_flat.c" "actell_flat_execute.c" "actell_flat_store.c" "actell_provision.c" "actell_activity.c" "actell_slan.c" "actell_pairing.c" "actell_lan_transport.c" "actell_discovery.c" "actell_leaf.c")
     if(CONFIG_ACTELL_BRIDGE_USB_SETUP)
         list(APPEND srcs "actell_usb_setup.c")
     endif()

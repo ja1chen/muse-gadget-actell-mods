@@ -15,7 +15,7 @@ COMP = ROOT / 'bridge/extensions/gadget-actell/components/actell_bridge'
 
 
 class CommandMetadataTests(unittest.TestCase):
-    def test_full_official_registration_with_and_without_images(self):
+    def test_official_flat_registration_with_and_without_images(self):
         archive = ROOT / 'local/upstream/archives/muse-gadget-sdk-812c46f.tar.gz'
         self.assertEqual(hashlib.sha256(archive.read_bytes()).hexdigest(),
                          '0a7548404b4aa25ad0cc3ad0f9fee1ad3a3245a03a14b02293da3a83bde69359')
@@ -76,32 +76,31 @@ int main(){
                             'MUSE_WATCHER_CAMERA': 1}.items()))
                 subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-c',
                                 str(COMP / 'actell_commands.c'), '-I', str(tmp), '-I', str(cjson),
-                                '-I', str(COMP / 'include'), '-I', str(COMP.parents[1] / 'tests/stubs'),
+                                '-I', str(COMP), '-I', str(COMP / 'include'), '-I', str(COMP.parents[1] / 'tests/stubs'),
                                 '-o', str(tmp / 'commands.o')], check=True)
+                subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-c',
+                    str(COMP/'actell_flat.c'), '-I', str(cjson), '-I', str(COMP),
+                    '-I', str(COMP/'include'), '-I', str(COMP.parents[1]/'tests/stubs'),
+                    '-o', str(tmp/'flat.o')], check=True)
+                subprocess.run(['cc', '-std=c11', '-c', str(COMP/'actell_guard.c'),
+                    '-I', str(COMP/'include'), '-o', str(tmp/'guard.o')], check=True)
                 binary = tmp / 'register'
                 subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
-                                str(harness), str(tmp / 'commands.o'), str(tmp / 'cjson.o'),
+                                str(harness), str(tmp / 'commands.o'), str(tmp / 'cjson.o'), str(tmp/'guard.o'), str(tmp/'flat.o'),
                                 '-I', str(tmp), '-I', str(cjson), '-o', str(binary)], check=True)
                 raw = subprocess.check_output([str(binary)])
                 self.assertLess(len(raw), 8192)
                 commands = json.loads(raw)['params']['commands_v2']
-                self.assertEqual('actell.image' in commands, bool(images))
-                rpc = commands['actell.rpc']
-                self.assertEqual(set(rpc['required']), {'op', 'params_json'})
-                self.assertTrue(all(p['type'] == 'string' for p in rpc['required'].values()))
-                description = rpc['description']
-                self.assertIn("user's paired iPhone", description)
-                self.assertIn('capabilities -> runs.open -> tools.call -> calls.get', description)
-                self.assertIn('never repeat under a new ID', description)
-                self.assertIn('deadline_ms', description)
-                details = rpc['required']['params_json']['description']
-                first = details.split('Example complete command arguments: ', 1)[1].split('. Example', 1)[0]
-                self.assertEqual(json.loads(first), {'op': 'capabilities', 'params_json': '{}'})
-                poll = details.split('Example polling arguments: ', 1)[1].split('. Success', 1)[0]
-                self.assertEqual(json.loads(json.loads(poll)['params_json']),
-                                 {'run_id': 'your-original-run', 'call_id': 'your-original-call'})
-                if not images:
-                    self.assertIn('does not expose images', description)
+                expected = {'actell.tap', 'actell.drag', 'actell.home', 'actell.list_apps',
+                            'actell.launch_app', 'actell.type_text', 'actell.wait', 'actell.call_status'}
+                if images:
+                    expected.add('actell.screenshot')
+                self.assertEqual({k for k in commands if k.startswith('actell.')}, expected)
+                self.assertLess(len(raw), 7680)  # synthetic superset with printing headroom
+                for key in expected:
+                    required = commands[key]['required']
+                    self.assertFalse({'run_id', 'image_id', 'generation', 'geometry_revision'} & set(required))
+                self.assertNotIn('arguments', commands['actell.launch_app']['optional'])
 
 
 if __name__ == '__main__':

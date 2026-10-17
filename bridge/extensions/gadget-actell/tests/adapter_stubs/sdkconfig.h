@@ -1,2 +1,4 @@
 #pragma once
+#ifndef CONFIG_ACTELL_BRIDGE_IMAGES
 #define CONFIG_ACTELL_BRIDGE_IMAGES 0
+#endif

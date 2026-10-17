@@ -19,15 +19,16 @@ size_t cap;
 int64_t end;
 uint64_t generation;
 bool failed;
+const char *event_failure;
 } sink;
 
 static esp_err_t receive(esp_http_client_event_t *event){
  sink*s=event->user_data;
-if(esp_timer_get_time()>s->end||!actell_bridge_current(s->generation)){s->failed=true;
+if(esp_timer_get_time()>s->end||!actell_bridge_current(s->generation)){s->failed=true;s->event_failure="session_or_deadline";
 return ESP_FAIL;
 }
  if(event->event_id==HTTP_EVENT_ON_HEADER){
- #define HEADER(name,field) if(!strcasecmp(event->header_key,name)){if(strlen(event->header_value)>=sizeof(s->r->field)){s->failed=true;return ESP_FAIL;}strcpy(s->r->field,event->header_value);}
+ #define HEADER(name,field) if(!strcasecmp(event->header_key,name)){if(strlen(event->header_value)>=sizeof(s->r->field)){s->failed=true;s->event_failure="response_header";return ESP_FAIL;}strcpy(s->r->field,event->header_value);}
   HEADER("Content-Type",mime) HEADER("X-Actell-Request-Id",request_id) HEADER("X-Actell-Image-Id",image_id)
   HEADER("X-Actell-Generation",generation) HEADER("X-Actell-Width",width) HEADER("X-Actell-Height",height)
   HEADER("X-Actell-SHA256",digest) HEADER("X-Actell-Geometry-Revision",revision) HEADER("X-Actell-Image-Contract",contract)
@@ -37,11 +38,18 @@ return ESP_FAIL;
 
 }
 esp_err_t actell_http(const actell_config*c,const char*id,const char*body,bool image,uint64_t generation,int64_t expires,actell_response*r){
+ return actell_http_with_locator(c,id,body,image,generation,expires,r,NULL);
+}
+esp_err_t actell_http_with_locator(const actell_config*c,const char*id,const char*body,bool image,uint64_t generation,int64_t expires,actell_response*r,actell_http_locator *locator){
+ int64_t began=esp_timer_get_time(),discovery_ms=0,tls_ms=0,body_started=0;
+ memset(r,0,sizeof(*r));r->expected_bytes=-1;r->transport_stage="session_or_deadline";
  if(!actell_bridge_current(generation)||esp_timer_get_time()>expires){
  ESP_LOGW("actell.rpc","transport stage=session_or_deadline");return ESP_ERR_INVALID_STATE;}
 
+ r->transport_stage="clock";
  if(!actell_clock_ready()){
  ESP_LOGW("actell.rpc","transport stage=clock");return ESP_ERR_INVALID_STATE;}
+ r->transport_stage="request_identity";
  size_t blen=strlen(body);
 if(blen>ACTELL_REQUEST_MAX)return ESP_ERR_INVALID_SIZE;
 
@@ -59,18 +67,29 @@ size_t maclen=0;
  if(!colon[1]||*end||parsed<1||parsed>65535)return ESP_ERR_INVALID_ARG;
  port=(int)parsed;}
  /* Discovery is only a locator; the stored SAN hostname and leaf remain trust. */
- actell_candidate *found=calloc(SLAN_CANDIDATES,sizeof(*found));
- if(!found)return ESP_ERR_NO_MEM;
- unsigned count=0;esp_err_t discovery=actell_lan_discover(found,&count,c);
+ r->transport_stage="discovery";
  char address[16]={0};
- if(discovery==ESP_OK&&count)strcpy(address,found[0].address);
- free(found);
- if(!address[0]){
- ESP_LOGW("actell.rpc","transport stage=discovery error=%s",esp_err_to_name(discovery));
- return ESP_ERR_NOT_FOUND;}
+ bool reused=locator&&locator->address[0]&&!strcmp(locator->origin,c->origin)&&
+     !strcmp(locator->client,c->client)&&!strcmp(locator->fingerprint,c->fingerprint)&&
+     actell_lan_address(inet_addr(locator->address));
+ if(reused)strcpy(address,locator->address);
+ if(locator)locator->address[0]=0; /* Any later failure invalidates this invocation's locator. */
+ if(!reused){
+  actell_candidate *found=calloc(SLAN_CANDIDATES,sizeof(*found));
+  if(!found)return ESP_ERR_NO_MEM;
+  int64_t lookup_started=esp_timer_get_time();
+  unsigned count=0;esp_err_t discovery=actell_lan_discover(found,&count,c);
+  discovery_ms=(esp_timer_get_time()-lookup_started)/1000;
+  if(discovery==ESP_OK&&count)strcpy(address,found[0].address);
+  free(found);
+  if(!address[0]){
+   ESP_LOGW("actell.rpc","transport stage=discovery error=%s",esp_err_to_name(discovery));
+   return ESP_ERR_NOT_FOUND;
+  }
+ }
+ r->transport_stage="interface";
  struct ifreq iface;if(!actell_lan_interface(&iface))return ESP_ERR_INVALID_STATE;
  snprintf(url,sizeof(url),"https://%s:%d/v1/rpc",address,port);
-memset(r,0,sizeof(*r));
 
  size_t cap=image?ACTELL_IMAGE_MAX:ACTELL_JSON_MAX;
  actell_buffer received={0};
@@ -78,10 +97,12 @@ memset(r,0,sizeof(*r));
  int64_t end=esp_timer_get_time()+15000000;
 if(expires<end)end=expires;
 
+ r->transport_stage="deadline";
  if(esp_timer_get_time()>=end)return ESP_ERR_INVALID_STATE;
  int timeout_ms=(int)((end-esp_timer_get_time())/1000);
  if(timeout_ms<1)timeout_ms=1;
- sink s={r,cap,end,generation,false};
+ sink s={r,cap,end,generation,false,NULL};
+ r->transport_stage="request_auth";
 
  /* Discovery or SNTP may advance wall time. Sample only after readiness and
   * location lookup, immediately before signing, never before clock sync. */
@@ -119,6 +140,7 @@ i++)snprintf(signature+2*i,3,"%02x",mac[i]);
  esp_http_client_config_t config={.url=url,.cert_pem=c->pem,.if_name=&iface,.common_name=hostname,.timeout_ms=timeout_ms,.disable_auto_redirect=true,
    .event_handler=receive,.user_data=&s,.keep_alive_enable=false,.skip_cert_common_name_check=false};
 
+ r->transport_stage="client_init";
  esp_http_client_handle_t http=esp_http_client_init(&config);
 if(!http)return ESP_ERR_NO_MEM;
  esp_http_client_set_header(http,"Host",c->origin+8);
@@ -133,12 +155,16 @@ esp_http_client_set_header(http,"X-Actell-Signature",signature);
     Each partial write/read is fenced. Already sent bytes cannot be rolled back. */
  esp_err_t e=ESP_FAIL;
 
+ r->transport_stage="tls_connect";
+ int64_t tls_started=esp_timer_get_time();
  if(actell_bridge_current(generation)&&esp_timer_get_time()<end)e=esp_http_client_open(http,blen);
+ tls_ms=(esp_timer_get_time()-tls_started)/1000;
 
  size_t sent=0;
 
  while(e==ESP_OK&&sent<blen){
-  if(!actell_bridge_current(generation)||esp_timer_get_time()>end){e=ESP_FAIL;
+  r->transport_stage="send_request";
+  if(!actell_bridge_current(generation)||esp_timer_get_time()>end){r->transport_stage="session_or_deadline";e=ESP_FAIL;
 break;
 }
   size_t chunk=blen-sent;
@@ -153,21 +179,24 @@ break;
  int status=0;
  int64_t content=-1;
 
- if(e==ESP_OK){content=esp_http_client_fetch_headers(http);
+ if(e==ESP_OK){r->transport_stage="read_headers";content=esp_http_client_fetch_headers(http);r->expected_bytes=content;
 status=esp_http_client_get_status_code(http);r->http_status=status;
 if(content<0||status!=200)e=ESP_FAIL;
 else if(content>(int64_t)cap)e=ESP_ERR_INVALID_SIZE;
 else {
+    r->transport_stage="allocate_body";
     actell_buffer_result allocated=actell_buffer_init(&received,cap,(size_t)content);
     if(allocated!=ACTELL_BUFFER_OK)e=allocated==ACTELL_BUFFER_LIMIT?ESP_ERR_INVALID_SIZE:ESP_ERR_NO_MEM;
 }
 }
+ body_started=esp_timer_get_time();
  while(e==ESP_OK){
-  if(!actell_bridge_current(generation)||esp_timer_get_time()>end){e=ESP_FAIL;
+  r->transport_stage="read_body";
+  if(!actell_bridge_current(generation)||esp_timer_get_time()>end){r->transport_stage="session_or_deadline";e=ESP_FAIL;
 break;
 }
   unsigned char block[1024];
-int n=esp_http_client_read(http,(char*)block,sizeof(block));
+int n=esp_http_client_read(http,(char*)block,sizeof(block));r->read_result=n;
 
 if(n<0){e=ESP_FAIL;
 break;
@@ -176,9 +205,12 @@ break;
 break;
 }
   actell_buffer_result appended=actell_buffer_append(&received,block,(size_t)n);
-  if(appended!=ACTELL_BUFFER_OK){e=appended==ACTELL_BUFFER_LIMIT?ESP_ERR_INVALID_SIZE:ESP_ERR_NO_MEM;break;}
+  if(appended!=ACTELL_BUFFER_OK){r->transport_stage="append_body";e=appended==ACTELL_BUFFER_LIMIT?ESP_ERR_INVALID_SIZE:ESP_ERR_NO_MEM;break;}
 
  }
+ int64_t read_ms=(esp_timer_get_time()-body_started)/1000;
+ r->received_bytes=received.length;
+ if(s.failed)r->transport_stage=s.event_failure;
  esp_http_client_close(http);
 esp_http_client_cleanup(http);
 
@@ -188,9 +220,16 @@ esp_http_client_cleanup(http);
  actell_buffer_free(&received);
  return e!=ESP_OK?e:ESP_FAIL;
 }
+ if(locator){
+  strcpy(locator->address,address);strcpy(locator->origin,c->origin);
+  strcpy(locator->client,c->client);strcpy(locator->fingerprint,c->fingerprint);
+ }
+ r->transport_stage=NULL;
  r->body=received.data;
  r->length=received.length;
  ESP_LOGI("actell.rpc","transport response_bytes=%u limit_bytes=%u",(unsigned)r->length,(unsigned)cap);
+ ESP_LOGI("actell.rpc","phase=http_timing image=%d bytes=%u locator_reused=%d discovery_ms=%lld tls_ms=%lld read_ms=%lld total_ms=%lld",
+     image,(unsigned)r->length,reused,(long long)discovery_ms,(long long)tls_ms,(long long)read_ms,(long long)((esp_timer_get_time()-began)/1000));
 return ESP_OK;
 
 }

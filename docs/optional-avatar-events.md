@@ -89,9 +89,28 @@ python -m unittest discover -s tests -v
 
 ## Real Muse integration is still separate
 
-There is no verified transport here carrying these events from Muse's VM to the gadget. The existing Home Link client integration and model screenshot input remain unverified. The C extension's firmware installation instructions are supplied separately; physical board/display validation remains required. Do not infer that a successful local ABI/mock test connects a real iPhone, updates the board avatar, or completes the original end-to-end tool chain.
+The standalone Python/console layer does not establish a Muse VM-to-gadget event
+transport. Firmware uses the serialized bridge worker's outer tool lifecycle, separately
+from the Python receipt-based facade above. Once the worker starts processing a
+current, unexpired `actell.screenshot`/`list_apps` request it shows READ; phone
+input requests show WRITE. This means "processing a phone request", not proof of
+phone execution, approval or success. Discovery, connection, phone queueing,
+result polling, owner release and retained-image download all share that pose.
+The lease is bounded by the existing remaining command budget; it adds no wait
+and changes no RPC or deadline. Internal success/cancel receipts cannot clear it.
+The worker ends it on completion or error, with a 350 ms success hold and immediate
+error/session-change clear. Wait, history queries and unknown commands are silent.
+Recent standalone receipt records reuse terminal slots; cancel-history rollover
+cannot disable later animations. No invocation count is a presentation lifetime.
 
-A future real transport must preserve ordering, validate the small event schema, send only these presentation fields, dispatch all C setters from one task, and allow receiver TTL expiry. It must remain optional and independent of the main tool channel. This deliverable does not add that transport or claim it exists.
+The normal bridge profile enables this integration. The renderer shows phone
+poses in IDLE/THINKING; listening, speech, boot, shutdown and error retain priority.
+Device rendering during actual phone tools and model screenshot visibility remain
+separate acceptance checks.
+
+The firmware path preserves generation and call identity checks, uses bounded
+tracking and receiver TTL expiry, and does not change tool results or replay actions.
+Local Python/mock/ABI tests alone do not prove physical phone or display behavior.
 
 ## Rollback
 

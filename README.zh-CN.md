@@ -60,6 +60,8 @@ TTS 接口配置检查在 ESP-IDF Python 环境运行：`python3 bridge/tools/va
 - [来源与许可](THIRD_PARTY.md)
 
 Actell 工具注册自带手机操作流程、参数与调用示例，无需额外注入 skill 上下文。
+使用 `actell.screenshot` 一次调用查看手机；一级输入工具采用归一化坐标，不要求先截图，`actell.call_status` 查询原调用。首版永久调用记录按 NVS 可用空间确定，最多 512 次，不自动清理；详见[接入状态](docs/actell-flat-tools-integration-status.md)。
+常规桥接配置启用截屏 JPEG 回传和查看／操作手机头像动作。动画覆盖 worker 处理请求至连接和图片交付的过程，表示处理中而非执行成功，不增加调用或等待；动画可见性和模型实际看到图片仍须实机验证。
 手机工具完成结果采用有界的 256 KiB JSON 接收，超限与网络故障分别报告。
 Actell 设置提供持久保存的自动连接开关，默认开启，每 30 秒尝试恢复已保存的配对连接，不重放操作。校时成功会立即唤醒尚未连接的保存配对，仍遵守自动连接关闭及重试暂停状态。
 已完成的重复调用会立即返回安全对账错误；只读查询可回收工作槽，写调用保留独立有界去重保护，避免回收后重放。
@@ -82,3 +84,5 @@ git status --short
 检查器扫描已跟踪及未忽略文件，只报告路径和问题类型，不打印凭据；它不替代人工审查。对外归档从已审查的 Git 提交生成，输出到 `local/`，不要压缩整个工作目录。
 
 需要比对实际凭据时，运行 `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --audit-share`。工具检查 Git 可见文件及暂存内容，仅报告脱敏后的匹配位置，不回显值或匹配行。
+
+鉴权拒绝时保留已有配对和 Wi-Fi，不再仅为启动上报而刷新已有设备凭据。

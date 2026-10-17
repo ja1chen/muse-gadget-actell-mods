@@ -60,6 +60,8 @@ Optional [Waveshare 2.16 controls](bridge/extensions/waveshare-216-controls/READ
 - [Provenance and licensing](THIRD_PARTY.md)
 
 Actell command descriptions include the phone-tool workflow and parameter examples; a separate skill injection is not required.
+Use `actell.screenshot` to receive the phone screen in one call. Flat input tools use normalized coordinates without requiring a screenshot; `actell.call_status` reconciles an original operation. Permanent local invoke history has a finite first-version capacity of at most 512 calls, based on available NVS; see the [integration status](docs/actell-flat-tools-integration-status.md).
+The normal bridge profile enables screenshot JPEG return and phone read/write avatar activity. Activity covers the worker request through connection and image delivery, indicates processing rather than execution success, and adds no RPCs or waits; actual animation and model image visibility require target verification.
 Completed phone-tool JSON results use a bounded 256 KiB receiver; oversize reads are reported separately from network failures.
 Actell settings include a persistent Auto-connect switch; enabled by default, it retries the saved pairing every 30 seconds without replaying actions. Clock synchronization also wakes a disconnected saved pairing immediately, while respecting disabled auto-connect and paused retries.
 Completed duplicate invokes return a safe reconciliation error; read-only queries recycle finished work slots while mutating invoke IDs retain bounded protection against replay.
@@ -82,3 +84,5 @@ git status --short
 The checker scans tracked and non-ignored files, reporting paths and issue types without printing credentials. It does not replace manual review. Generate distributable archives from reviewed Git commits and write them to `local/`; do not archive the entire working directory.
 
 For a comparison with the actual credentials, run `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --audit-share`. This tool checks Git-visible working files and staged contents, reporting sanitized locations only; it does not reveal values or matching lines.
+
+Authentication rejection preserves saved pairing and Wi-Fi; boot-only SDK reporting does not refresh an otherwise usable device credential.

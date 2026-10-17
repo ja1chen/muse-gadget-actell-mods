@@ -11,3 +11,6 @@ esp_err_t nvs_set_blob(nvs_handle_t,const char *,const void *,size_t);
 esp_err_t nvs_commit(nvs_handle_t);
 esp_err_t nvs_erase_key(nvs_handle_t,const char *);
 void nvs_close(nvs_handle_t);
+
+typedef struct {size_t used_entries,free_entries,total_entries,namespace_count;} nvs_stats_t;
+esp_err_t nvs_get_stats(const char *,nvs_stats_t *);

@@ -13,7 +13,7 @@ s++,n++) if (n>=ACTELL_ID_MAX || !((*s>='a'&&*s<='z')||(*s>='A'&&*s<='Z')||(*s>=
 
 }
 bool actell_op_valid(const char *op) {
- static const char *ops[]={"companion.hello","capabilities","runs.open","runs.get","runs.cancel","tools.call","calls.get","images.get"};
+ static const char *ops[]={"companion.hello","capabilities","runs.open","runs.get","runs.cancel","tools.call","calls.get","images.get","actell.screenshot","actell.tap","actell.drag","actell.home","actell.list_apps","actell.launch_app","actell.type_text","actell.wait","actell.call_status"};
 
  if (!op) return false;
 
@@ -24,7 +24,7 @@ i++) if(!strcmp(op,ops[i]))return true;
  return false;
 
 }
-bool actell_op_mutates(const char *op) { return op && (!strcmp(op,"tools.call")||!strcmp(op,"runs.open")||!strcmp(op,"runs.cancel"));
+bool actell_op_mutates(const char *op) { return op && ((!strncmp(op,"actell.",7)&&strcmp(op,"actell.call_status")&&strcmp(op,"actell.wait"))||!strcmp(op,"tools.call")||!strcmp(op,"runs.open")||!strcmp(op,"runs.cancel"));
  }
 void actell_guard_session(actell_guard *g,uint64_t generation){ if(g->generation!=generation){memset(g,0,sizeof(*g));
 g->generation=generation;

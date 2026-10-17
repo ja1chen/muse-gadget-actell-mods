@@ -11,7 +11,11 @@
 static struct fake_http { esp_http_client_config_t config; } http;
 static unsigned char *reply;
 static size_t reply_size,offset;
-static unsigned reads;
+static unsigned reads,discoveries;
+static bool local_address=true;
+static actell_http_locator *test_locator;
+static unsigned config_variant;
+bool actell_lan_address(uint32_t address){(void)address;return local_address;}
 static bool chunked,truncated,cancelled,cancel_during_read;
 void test_http_log(const char *tag,const char *format,...){(void)tag;(void)format;}
 const char *esp_err_to_name(int e){(void)e;return "synthetic";}
@@ -23,6 +27,7 @@ bool actell_clock_ready(void){wall+=120;return true;}
 void esp_fill_random(void *p,size_t n){memset(p,1,n);}
 bool actell_lan_interface(struct ifreq *p){memset(p,0,sizeof(*p));return true;}
 esp_err_t actell_lan_discover(actell_candidate out[SLAN_CANDIDATES],unsigned *n,const actell_config *p){
+ discoveries++;
     wall+=120; /* Discovery also delays the signing timestamp. */
     (void)p;strcpy(out[0].address,"192.168.1.2");*n=1;return ESP_OK;
 }
@@ -75,14 +80,21 @@ static void run(size_t size,bool unknown,bool cut,bool cancel) {
     reply=malloc(size+1);assert(reply);memset(reply,'x',size);reply[size]=0;
     memcpy(reply,prefix,strlen(prefix));memcpy(reply+size-strlen(suffix),suffix,strlen(suffix));
     actell_config config={0};strcpy(config.origin,"https://stable-cert.local:8765");
+    strcpy(config.client,config_variant?"synthetic-other":"synthetic-client");
     actell_response response={0};
-    int e=actell_http(&config,"test-request","{}",false,7,90000000,&response);
+    int e=test_locator?actell_http_with_locator(&config,"test-request","{}",false,7,90000000,&response,test_locator):actell_http(&config,"test-request","{}",false,7,90000000,&response);
     if(size>ACTELL_JSON_MAX){
         assert(e==ESP_ERR_INVALID_SIZE && !response.body);
         if(!unknown)assert(!reads); /* reject Content-Length before allocating/reading */
-    }else if(cut||cancel){assert(e!=ESP_OK && !response.body);}
+    }else if(cut||cancel){
+        assert(e!=ESP_OK && !response.body);
+        assert(response.transport_stage&&!strcmp(response.transport_stage,cancel?"session_or_deadline":"read_body"));
+        assert(response.expected_bytes==(unknown?0:(long long)size));
+        assert(response.received_bytes==offset&&response.received_bytes<size);
+    }
     else {
         assert(e==ESP_OK && response.length==size && response.body[size]==0);
+        assert(!response.transport_stage&&response.received_bytes==size);
         assert(!memcmp(response.body,reply,size));
         free(response.body);
     }
@@ -93,5 +105,14 @@ int main(void){
     for(size_t i=0;i<sizeof(sizes)/sizeof(*sizes);i++)for(unsigned c=0;c<2;c++)run(sizes[i],c,false,false);
     run(65536,false,true,false);run(65536,true,true,false);
     run(65536,false,false,true);run(65536,true,false,true);
+    actell_http_locator locator={0};test_locator=&locator;
+    unsigned before=discoveries;
+    run(1024,false,false,false);assert(discoveries==before+1&&locator.address[0]);
+    run(1024,false,false,false);assert(discoveries==before+1); /* same invocation, still authenticates TLS */
+    run(1024,false,true,false);assert(discoveries==before+1&&!locator.address[0]);
+    run(1024,false,false,false);assert(discoveries==before+2); /* failed read invalidates, never replays */
+    config_variant=1;run(1024,false,false,false);assert(discoveries==before+3);
+    local_address=false;run(1024,false,false,false);assert(discoveries==before+4);local_address=true;
+    test_locator=NULL;
     puts("PASS actual HTTP receive: completed JSON above 16 KiB, declared/chunked bounds, truncation, session fence; synthetic only");
 }

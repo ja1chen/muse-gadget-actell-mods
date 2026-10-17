@@ -29,6 +29,9 @@ const char *actell_bridge_pair_summary(const actell_pair_status *);
 bool actell_bridge_pair_action(actell_pair_action,unsigned index);
 void actell_bridge_pair_cancel(void);
 void actell_bridge_register(cJSON *commands);
+bool actell_bridge_handles(const char *command);
+bool actell_bridge_json_safe(const char *data,size_t length);
+size_t actell_bridge_result_limit(void);
 void actell_bridge_session(uint64_t generation);
 cJSON *actell_bridge_invoke(const char *command,const cJSON *params,const char *request_id,uint64_t generation);
 #ifdef __cplusplus
