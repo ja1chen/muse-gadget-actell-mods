@@ -27,5 +27,13 @@
     "npm_integrity": "sha512-0xJQThBOw2iptFccSXrKDIUTQAwr/2zhKjCI1lATIRgZo8uvYRTmenKafW9yTw6G0y5AyW00tqGpUtYuTuBIbQ=="
   },
   "lvgl": "9.5.0",
-  "status": "experimental candidates; no device acceptance"
+  "status": "experimental candidates; no device acceptance",
+  "caption_profile": {
+    "size": 16,
+    "line_height": 17,
+    "baseline": 3,
+    "bpp": 4,
+    "weight": "Regular",
+    "layout": "original unscii-16 geometry; hardware controls unchanged"
+  }
 }

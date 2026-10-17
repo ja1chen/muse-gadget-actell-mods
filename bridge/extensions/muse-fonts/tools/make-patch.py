@@ -13,24 +13,7 @@ changes = {
     'muse_ui.c': [
         ('#include "muse_text.h"\n', '#include "muse_text.h"\n' + include),
         ('static const lv_font_t *caption_font(void)\n{', 'static const lv_font_t *caption_font(void)\n{\n#if CONFIG_ACTELL_CAPTION_FONT\n    if (actell_caption_init()) return actell_caption_font();\n#endif'),
-        ('int cap_h = 2 * lv_font_get_line_height(&lv_font_unscii_16)', 'int cap_h = 2 * lv_font_get_line_height(caption_font())'),
-        ('    int cap_top = cap_bottom - cap_h;', '''#if CONFIG_ACTELL_CAPTION_FONT
-    if (actell_caption_active() && !muse_board->round) {
-        /* Use the spare bottom margin for taller glyphs before lifting Muse.
-         * Keep the original meter/character position when two lines fit. */
-        int old_h = 2 * lv_font_get_line_height(&lv_font_unscii_16) + CAPTION_LINE_SPACE;
-        cap_bottom += cap_h - old_h;
-        if (cap_bottom > s_h / 2 - 3) cap_bottom = s_h / 2 - 3;
-    }
-#endif
-    int cap_top = cap_bottom - cap_h;'''),
-        ('    int h = 3 * pitch - CAPTION_LINE_SPACE;', '''    int heard_lines = 3;
-#if CONFIG_ACTELL_CAPTION_FONT
-    if (actell_caption_active()) heard_lines = 2;
-#endif
-    int h = heard_lines * pitch - CAPTION_LINE_SPACE;'''),
-        ('set_reply_box(l, CAPTION_W / cw, 3, reply_bottom(CAPTION_W, ring_in) - h, cw, pitch);', 'set_reply_box(l, CAPTION_W / cw, heard_lines, reply_bottom(CAPTION_W, ring_in) - h, cw, pitch);'),
-        ('set_reply_box(l, c, 3, top, cw, pitch);', 'set_reply_box(l, c, heard_lines, top, cw, pitch);'),
+        ("    int cw = lv_font_get_glyph_width(font, 'M', ' ');", "    int cw = lv_font_get_glyph_width(&lv_font_unscii_16, 'M', ' ');"),
         ('    s_reply_lbl = make_label(face, font, COLOR_CAPTION);', '    s_reply_lbl = make_label(face, font, COLOR_CAPTION);\n#if CONFIG_ACTELL_CAPTION_FONT\n    if (actell_caption_active()) {\n        /* First page can be requested before the first UI tick. */\n        int initial = muse_settings_speaker_on() ? ANSWER_HEARD : ANSWER_READ;\n        actell_caption_set_page(s_answers[initial].w, s_answers[initial].lines);\n    }\n#endif'),
         ('    lv_label_set_long_mode(s_reply_lbl, LV_LABEL_LONG_MODE_WRAP);', '    lv_label_set_long_mode(s_reply_lbl, LV_LABEL_LONG_MODE_WRAP);\n#if CONFIG_ACTELL_CAPTION_FONT\n    if (actell_caption_active()) lv_label_set_long_mode(s_reply_lbl, LV_LABEL_LONG_MODE_CLIP);\n#endif'),
         ('            s_page_for = layout;', '            s_page_for = layout;\n#if CONFIG_ACTELL_CAPTION_FONT\n            if (actell_caption_active()) actell_caption_set_page(s_answers[layout].w, s_answers[layout].lines);\n#endif'),

@@ -13,6 +13,7 @@ const writeBin = require(path.join(converter, 'lib/writers/bin'));
 const setDepth = require(path.join(converter, 'lib/utils')).set_depth;
 const opentype = require(path.join(converter, 'node_modules/opentype.js'));
 const { PNG } = require(path.join(converter, 'node_modules/pngjs'));
+const nativeMetrics = require('./native-metrics');
 const manifest = JSON.parse(fs.readFileSync(path.join(here, 'manifest.json')));
 const charset = JSON.parse(fs.readFileSync(path.join(here, 'charset/dynamic.json')));
 const sample = fs.readFileSync(path.join(here, 'charset/preview.txt'), 'utf8');
@@ -63,9 +64,9 @@ async function main() {
   checked('SourceHanSans-OFL.txt');
   const reports = [];
   const variants = process.argv.slice(2);
-  for (const variant of variants.length ? variants : ['Regular:24:4', 'Medium:24:4', 'Regular:28:4', 'Medium:28:4', 'Regular:24:2', 'Medium:24:2']) {
+  for (const variant of variants.length ? variants : ['Regular:16:4']) {
     const [weight, px, depth] = variant.split(':');
-    if (!['Regular', 'Medium'].includes(weight) || !['24', '28'].includes(px) || !['2', '4'].includes(depth)) throw Error('Use Regular|Medium:24|28:2|4');
+    if (!['Regular', 'Medium'].includes(weight) || !['16', '24', '28'].includes(px) || !['2', '4'].includes(depth)) throw Error('Use Regular|Medium:16|24|28:2|4');
     const size = Number(px), bpp = Number(depth);
     const name = `actell_device_sans_${weight.toLowerCase()}_${size}_${bpp}`;
     const source = `SourceHanSansSC-${weight}.otf`, bytes = checked(source);
@@ -79,6 +80,7 @@ async function main() {
     };
     console.log(`Generating ${variant}; ${requested.length - missing.length} cmap glyphs`);
     const data = await collect(args);
+    const metricsPolicy = size === 16 ? nativeMetrics(data) : null;
     // Independent oracle for the bounded C decoder: exact quantized A8 pixels
     // and integer advances from the converter before binary serialization.
     const oracle = data.glyphs.map(g => ({
@@ -94,10 +96,10 @@ async function main() {
     const binary = writeBin(binArgs, data)[binArgs.output];
     fs.writeFileSync(path.join(output, binArgs.output), binary);
     preview(data, bpp, path.join(reportDir, name + '.png'));
-    const report = { name, source, source_sha256: sha(bytes), size, bpp, glyphs: data.glyphs.length, missing: missing.map(cp => cp.toString(16).toUpperCase()), line_height: data.ascent - data.descent, baseline: -data.descent,
+    const report = { name, source, source_sha256: sha(bytes), size, bpp, metrics_policy: metricsPolicy, glyphs: data.glyphs.length, missing: missing.map(cp => cp.toString(16).toUpperCase()), line_height: data.ascent - data.descent, baseline: -data.descent,
       output_sha256: sha(c), c_source_bytes: Buffer.byteLength(c), binary_sha256: sha(binary), binary_bytes: binary.length, binary_format: 'lv_font_conv-bin-1.5.3', charset_sha256: sha(fs.readFileSync(path.join(here, 'charset/dynamic.json'))), preview_sample_sha256: sha(sample),
       converter: manifest.converter, reproduction: `node bridge/extensions/muse-fonts/tools/generate.js ${variant}`,
-      preview: 'Converter FreeType raster at output bpp, 1:1 pixels; not device acceptance or LVGL line-layout validation' };
+      preview: 'Output raster at selected bpp, 1:1 pixels; 16px applies documented line fitting; not device acceptance or LVGL line-layout validation' };
     fs.writeFileSync(path.join(reportDir, name + '.json'), JSON.stringify(report, null, 2) + '\n');
     reports.push(report);
   }

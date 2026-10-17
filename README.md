@@ -61,6 +61,8 @@ Maintain both indexes alongside implementation changes. Keep entries brief and o
 
 The project's independent code follows the root Apache-2.0 LICENSE. Actell remains a separate application under its own GPL-3.0 license. Public synthetic authentication vectors are test data; project-local tokens, pairing information, and private keys belong in `local/credentials/`. User-selected secrets source files may remain outside the project.
 
+Native-size caption fonts use 16px glyphs and the original 17px line height; message geometry follows the original layout while hardware-specific top controls are retained. See the [native-size guide](docs/caption-font-native-size.md).
+
 Experimental [caption fonts and shared resources](docs/caption-font-integration.md) provide a default-off reader, bounded per-glyph decoding, pixel pagination, original-font fallback and public-config firmware builds. [Resource packages](docs/read-only-resources.md) contain Actell Device Sans candidates derived from pinned Adobe fonts; font assets retain OFL-1.1 separately from the code license. Generated data stays under `local/`. The font build runner also supports protected combined firmware with `--mode on --with-tts --secrets`; both extensions must be staged first. Add `--tts-transport http` to build the original HTTP backend into isolated `private-fonts-tts-http/` outputs; omitting it keeps bidirectional as the default. The proposed resource layout preserves original data partitions and dual OTA slots. Initial resource deployment and firmware startup checks have passed. Final font selection, visual/performance acceptance and rollback validation remain pending.
 
 ## Before sharing through Git
