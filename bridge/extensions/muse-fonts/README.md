@@ -1,4 +1,4 @@
-# Caption font candidates
+# Caption fonts
 
 Experimental **Actell Device Sans**, derived from Adobe Source Han Sans SC
 2.005R. This directory contains generation tools, the explicit dynamic-text
@@ -19,22 +19,22 @@ npm install --prefix local/cache/caption-font-tools --cache local/cache/npm \
 node bridge/extensions/muse-fonts/tools/generate.js
 ```
 
-The generator verifies font and license hashes before conversion. Its default
-matrix is Regular/Medium at 24px/4bpp, 28px/4bpp and 24px/2bpp. To regenerate
-one candidate, append e.g. `Regular:24:4`. That run's `summary.json` lists only
+The generator verifies font and license hashes before conversion. Its default is Regular at 16px/4bpp, with a 17px line height matching the
+original unscii-16 UI. To regenerate one candidate, append e.g. `Regular:16:4`.
+Historical 24/28px candidates remain explicit tooling options. That run's `summary.json` lists only
 the candidates requested in that invocation; individual candidate reports persist.
 
 Generated C data, standard binary `.font` data and distribution notices go to `local/build/caption-fonts/`;
 coverage reports and 480×480 PNGs go to `local/validation/caption-fonts/`.
-PNGs show converter raster data at its actual quantized bit depth and 1:1
-pixels, without browser OTF text. They are glyph comparisons, not the Muse
+PNGs show final raster data at its actual quantized bit depth and 1:1
+pixels, including the native line fitting described below, without browser OTF text. They are glyph comparisons, not the Muse
 screen layout, original-font comparisons, LVGL decoder tests or device acceptance.
 The preview sample is synthetic and is never used to restrict the dynamic charset.
 
 Build a shared resource container (font, coverage/provenance and complete license):
 
 ```sh
-python3 bridge/extensions/muse-fonts/tools/pack.py build --font actell_device_sans_regular_24_4
+python3 bridge/extensions/muse-fonts/tools/pack.py build --font actell_device_sans_regular_16_4
 ```
 
 Containers go to `local/build/read-only-resources/`; their budgets go to
@@ -70,8 +70,12 @@ pair scan is quadratic for this 29k-glyph profile. Any subsequent renderer and
 pagination must use the emitted advances with the same no-kerning policy.
 No fallback font is silently embedded. The integrated normalizer preserves covered characters and LF, maps tab/CR to
 spaces, and uses a visible question mark for unsupported or invalid text. Missing
-or incompatible resources keep the original font and pagination path. The emitted line height is 46px at size 24 and 54px at size
-28, reflecting all retained glyph extrema rather than assuming size equals pitch.
+or incompatible resources keep the original font and pagination path. The native 16px profile has 17px line height and a 3px baseline. Glyphs taller
+than 17px are area-resampled to fit without clipping; other outliers are shifted
+inside the line. Advances and all covered code points remain unchanged. Ordinary
+16px Chinese glyphs retain their raster. The historical 24/28px profiles have
+46/54px global line heights and are no longer accepted by the device adapter.
+See [native size and layout](../../../docs/caption-font-native-size.md).
 
 ## Licensing
 
@@ -98,7 +102,7 @@ it does not migrate or write a device. Resource initialization and normal
 operation provide no Flash-writing or credential-management interface.
 
 `dev.py test` runs synthetic container and real C core checks without downloaded
-fonts. `run-font-host.py` checks all six actual binary candidates against exact
-converter pixel/metric oracles and runs ASan/UBSan. `run-resource-port.py` uses
+fonts. `run-font-host.py` checks the native binary by default (or explicit repeated
+`--font` IDs) against exact final pixel/metric oracles and runs ASan/UBSan. `run-resource-port.py` uses
 the actual device source with read-only host partition and crypto substitutes;
 these results are separate from physical-device acceptance.

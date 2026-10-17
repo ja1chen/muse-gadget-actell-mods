@@ -18,26 +18,14 @@
 +#endif
  #if CONFIG_MUSE_CJK_FONT
      static lv_font_t font;
-@@ -712,11 +719,15 @@
-     l->y = s_big_y;
-     l->align = LV_TEXT_ALIGN_CENTER;
--    int h = 3 * pitch - CAPTION_LINE_SPACE;
-+    int heard_lines = 3;
-+#if CONFIG_ACTELL_CAPTION_FONT
-+    if (actell_caption_active()) heard_lines = 2;
-+#endif
-+    int h = heard_lines * pitch - CAPTION_LINE_SPACE;
-     int art_bottom = l->y + l->px / 2 - ART_BLANK_ROWS * cell;
--    set_reply_box(l, CAPTION_W / cw, 3, reply_bottom(CAPTION_W, ring_in) - h, cw, pitch);
-+    set_reply_box(l, CAPTION_W / cw, heard_lines, reply_bottom(CAPTION_W, ring_in) - h, cw, pitch);
-     for (int c = 24; c > l->cols; c--) {   /* wider if it still clears Muse */
-         int top = reply_bottom(c * cw, ring_in) - h;
-         if (top >= art_bottom + 6 && fits_across(c * cw, top, ring_in)) {
--            set_reply_box(l, c, 3, top, cw, pitch);
-+            set_reply_box(l, c, heard_lines, top, cw, pitch);
-             break;
-         }
-@@ -751,7 +762,17 @@
+@@ -703,5 +710,5 @@
+     }
+     const lv_font_t *font = caption_font();
+-    int cw = lv_font_get_glyph_width(font, 'M', ' ');
++    int cw = lv_font_get_glyph_width(&lv_font_unscii_16, 'M', ' ');
+     int pitch = lv_font_get_line_height(font) + CAPTION_LINE_SPACE;
+ 
+@@ -751,7 +758,17 @@
  
      s_reply_lbl = make_label(face, font, COLOR_CAPTION);
 +#if CONFIG_ACTELL_CAPTION_FONT
@@ -55,27 +43,7 @@
 +#endif
      lv_obj_remove_flag(s_reply_lbl, LV_OBJ_FLAG_SCROLLABLE);
      lv_obj_add_flag(s_reply_lbl, LV_OBJ_FLAG_HIDDEN);
-@@ -858,9 +879,18 @@
-      */
-     int ring_in = (s_w < s_h ? s_w : s_h) / 2 - 10;   /* the ring's inner edge */
--    int cap_h = 2 * lv_font_get_line_height(&lv_font_unscii_16) + CAPTION_LINE_SPACE;
-+    int cap_h = 2 * lv_font_get_line_height(caption_font()) + CAPTION_LINE_SPACE;
-     int cap_bottom = 179;                              /* a 466 px circle's; fine for rectangles */
-     if (muse_board->round) {
-         cap_bottom = (int)sqrtf((float)(ring_in * ring_in - CAPTION_W * CAPTION_W / 4)) - 3;
-     }
-+#if CONFIG_ACTELL_CAPTION_FONT
-+    if (actell_caption_active() && !muse_board->round) {
-+        /* Use the spare bottom margin for taller glyphs before lifting Muse.
-+         * Keep the original meter/character position when two lines fit. */
-+        int old_h = 2 * lv_font_get_line_height(&lv_font_unscii_16) + CAPTION_LINE_SPACE;
-+        cap_bottom += cap_h - old_h;
-+        if (cap_bottom > s_h / 2 - 3) cap_bottom = s_h / 2 - 3;
-+    }
-+#endif
-     int cap_top = cap_bottom - cap_h;
-     int meter_y = cap_top - 6 - METER_SEG_PX / 2;
-@@ -1481,4 +1511,7 @@
+@@ -1481,4 +1498,7 @@
              muse_state_set_page(s_answers[layout].cols, s_answers[layout].lines);
              s_page_for = layout;
 +#if CONFIG_ACTELL_CAPTION_FONT

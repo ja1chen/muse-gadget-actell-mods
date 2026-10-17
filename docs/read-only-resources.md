@@ -36,9 +36,9 @@
 ```sh
 node bridge/extensions/muse-fonts/tools/generate.js
 python3 bridge/extensions/muse-fonts/tools/pack.py build \
-  --font actell_device_sans_regular_24_4
+  --font actell_device_sans_regular_16_4
 python3 bridge/extensions/muse-fonts/tools/pack.py verify \
-  local/build/read-only-resources/actell_device_sans_regular_24_4/resources.bin \
+  local/build/read-only-resources/actell_device_sans_regular_16_4/resources.bin \
   --require caption.font lv-font-conv-bin-1.5.3
 python3 bridge/tools/dev.py test
 ```

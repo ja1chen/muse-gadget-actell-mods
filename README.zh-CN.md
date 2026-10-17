@@ -4,6 +4,8 @@
 
 Muse Gadget SDK 的独立 Actell 扩展工程，面向 Waveshare ESP32-S3-Touch-AMOLED-2.16，并提供可选无屏配置。Muse 负责规划，设备端组件通过 HTTPS/HMAC 调用 Actell，复用 Actell 的授权、审批和执行队列。
 
+[Simple LAN 配对（SLAN/1）](docs/slan-pairing.md)支持从设备设置申请连接，经手机允许后自动领取凭据。首次采用可信 Wi-Fi 上的 TOFU，不抵御局域网主动中间人；后续固定精确证书。Bonjour 提供网络地址，TXT host 提供稳定的 TLS 校验名和 SNI，IP 改变不会替换保存的身份；缺少 host 的旧版配对广播提示更新手机 App。无需新 BLE、扫码或 ESP HTTPS server。
+
 ## 目录
 
 | 目录 | 内容 |
@@ -57,9 +59,20 @@ TTS 接口配置检查在 ESP-IDF Python 环境运行：`python3 bridge/tools/va
 - [Muse skill](bridge/extensions/skills/gadget-actell-remote/SKILL.md)
 - [来源与许可](THIRD_PARTY.md)
 
+Actell 工具注册自带手机操作流程、参数与调用示例，无需额外注入 skill 上下文。
+使用 `actell.screenshot` 一次调用查看手机；一级输入工具采用归一化坐标，不要求先截图，`actell.call_status` 查询原调用。首版永久调用记录按 NVS 可用空间确定，最多 512 次，不自动清理；详见[接入状态](docs/actell-flat-tools-integration-status.md)。
+常规桥接配置启用截屏 JPEG 回传和查看／操作手机头像动作。动画覆盖 worker 处理请求至连接和图片交付的过程，表示处理中而非执行成功，不增加调用或等待；动画可见性和模型实际看到图片仍须实机验证。
+手机工具完成结果采用有界的 256 KiB JSON 接收，超限与网络故障分别报告。
+Actell 设置提供持久保存的自动连接开关，默认开启，每 30 秒尝试恢复已保存的配对连接，不重放操作。校时成功会立即唤醒尚未连接的保存配对，仍遵守自动连接关闭及重试暂停状态。
+已完成的重复调用会立即返回安全对账错误；只读查询可回收工作槽，写调用保留独立有界去重保护，避免回收后重放。
+重连失败和取消均保留已保存的配对，只有明确选择 Forget pairing 才会删除。
+Pair with Actell 会自动向唯一开放的配对窗口发送申请，由 iPhone 选择并允许 Muse；ESP32 不再显示服务名列表让用户选手机，多窗口时提示只保留目标窗口。
+
 两份索引随实现同步维护，按类别简述差异，不写日期、不使用编号；实现、配置和验证细节保留在链接的详细文档中。
 
 本工程独立代码遵守根目录 Apache-2.0 LICENSE；Actell 作为独立应用保留其自身 GPL-3.0 许可。公开合成鉴权向量属于测试数据；工程内的真实 token、配对信息和私钥存放在 `local/credentials/`，用户指定的秘密配置源文件可保留在工程外。
+
+消息字体恢复为 16px 字号、原版 17px 行高及原消息区域布局，顶部硬件按钮适配保留，详见[原版字号说明](docs/caption-font-native-size.md)。
 
 实验性[字幕字体与共享资源](docs/caption-font-integration.md)提供默认关闭的读取器、有界逐字形解码、像素分页、原字体回退和公开配置固件构建。[资源包](docs/read-only-resources.md)中的 Actell Device Sans 候选来自固定 Adobe 字体，字体单独保留 OFL-1.1 授权，生成数据留在 `local/`。字体构建入口也支持 `--mode on --with-tts --secrets` 生成受保护的组合固件，需先暂存两个扩展。资源布局保留原有数据分区与双 OTA 槽位；已完成首次资源部署和固件启动核查；最终字体选型、显示/性能验收及回滚验证仍待完成。 添加 `--tts-transport http` 可构建原 HTTP 单向接口，输出隔离到 `private-fonts-tts-http/`；省略时仍默认双向。
 
@@ -73,3 +86,5 @@ git status --short
 检查器扫描已跟踪及未忽略文件，只报告路径和问题类型，不打印凭据；它不替代人工审查。对外归档从已审查的 Git 提交生成，输出到 `local/`，不要压缩整个工作目录。
 
 需要比对实际凭据时，运行 `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --audit-share`。工具检查 Git 可见文件及暂存内容，仅报告脱敏后的匹配位置，不回显值或匹配行。
+
+鉴权拒绝时保留已有配对和 Wi-Fi，不再仅为启动上报而刷新已有设备凭据。

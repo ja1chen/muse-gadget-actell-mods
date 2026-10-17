@@ -27,7 +27,8 @@ class GadgetComponentTests(unittest.TestCase):
         self.assertNotIn('esp_http_client_perform(',source)
         self.assertIn('actell_bridge_current(generation)',source)
         self.assertIn('X-Actell-Signature',source)
-        self.assertIn('esp_sntp_init()',source)
+        self.assertIn('actell_clock_ready()',source)
+        self.assertIn('esp_sntp_init()', (COMP/'actell_clock.c').read_text())
     def test_disabled_defaults(self):
         cfg=(COMP/'Kconfig').read_text()
         self.assertEqual(cfg.count('default n'),4)

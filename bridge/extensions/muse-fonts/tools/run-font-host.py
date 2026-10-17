@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Compare every real glyph against converter pixels, then run sanitizer checks."""
 import ctypes as C
+import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 
@@ -28,6 +30,13 @@ class Glyph(C.Structure):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--font', action='append', help='candidate ID; defaults to the native 16px profile')
+    args = parser.parse_args()
+    names = args.font or ['actell_device_sans_regular_16_4']
+    for name in names:
+        if not re.fullmatch(r'actell_device_sans_(regular|medium)_(16|24|28)_[24]', name):
+            parser.error('Invalid font profile')
     BUILD.mkdir(parents=True, exist_ok=True)
     sources = [str(EXT / 'src' / name) for name in ['actell_font_core.c', 'actell_caption_layout.c']]
     common = ['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-I' + str(EXT / 'include')]
@@ -45,18 +54,23 @@ def main():
     lib.actell_font_normalize.argtypes = [C.POINTER(Font), C.c_char_p, C.c_void_p, C.c_size_t]
     lib.actell_font_normalize.restype = C.c_size_t
     results = []
-    for oracle_file in sorted(REPORTS.glob('*.oracle.json')):
+    for oracle_file in [REPORTS / (name + '.oracle.json') for name in names]:
         name = oracle_file.name.removesuffix('.oracle.json')
         binary = ROOT / 'local/build/caption-fonts' / (name + '.font')
         data = C.create_string_buffer(binary.read_bytes())
         font = Font()
         assert lib.actell_font_open(C.byref(font), data, len(data) - 1), name
+        native = '_16_' in name
+        if native:
+            assert font.line_height == 17 and font.baseline == 3
         glyph, pixels = Glyph(), C.create_string_buffer(4096)
         oracle = json.loads(oracle_file.read_text())
         assert len(oracle) == font.count - 1
         for expected in oracle:
             assert lib.actell_font_glyph(C.byref(font), expected['code'], C.byref(glyph)), (name, expected['code'])
             assert all(getattr(glyph, key) == expected[key] for key in ['advance', 'width', 'height', 'x', 'y'])
+            if native:
+                assert glyph.y >= -3 and glyph.y + glyph.height <= 14
             assert lib.actell_font_decode(C.byref(font), C.byref(glyph), pixels, 4096, glyph.width)
             assert hashlib.sha256(pixels.raw[:glyph.width * glyph.height]).hexdigest() == expected['sha256'], (name, expected['code'])
         tests = ['中文，标点。「你好！」English word boundary', 'WWW iii 0123456789', 'https://example.com/very/long/path/without/spaces', '第一行\n\n第三行', '未知😀𠀀组合e\u0301', '流式追加的文本会逐渐增长。English sentence.']
@@ -84,12 +98,10 @@ def main():
         assert not lib.actell_font_page(C.byref(font), b'', 0, out, 400, 240, 3)
         results.append(dict(profile=name, glyphs_compared=len(oracle), exact_pixel_hashes=True, layout_widths_checked=True))
         print(name, len(oracle), 'exact glyphs and pixel layout PASS', flush=True)
-    if len(results) != 6:
-        raise SystemExit('Need all six converter oracles; rerun generate.js')
     sanitizer = BUILD / 'font-sanitizer'
     subprocess.run(common + ['-g', '-fsanitize=address,undefined', '-fno-omit-frame-pointer', *sources,
                              str(EXT / 'tests/core_test.c'), '-o', str(sanitizer)], check=True)
-    run = subprocess.run([str(sanitizer), str(ROOT / 'local/build/caption-fonts/actell_device_sans_regular_24_4.font')],
+    run = subprocess.run([str(sanitizer), str(ROOT / 'local/build/caption-fonts' / (names[0] + '.font'))],
                          check=True, capture_output=True, text=True, env={**os.environ, 'ASAN_OPTIONS': 'detect_leaks=0'})
     print(run.stdout.strip())
     (REPORTS / 'font-host.json').write_text(json.dumps(dict(candidates=results, sanitizer=run.stdout.strip(), device_verified=False), indent=2) + '\n')
