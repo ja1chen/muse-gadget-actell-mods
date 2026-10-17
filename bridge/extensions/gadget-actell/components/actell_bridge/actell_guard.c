@@ -29,16 +29,52 @@ bool actell_op_mutates(const char *op) { return op && (!strcmp(op,"tools.call")|
 void actell_guard_session(actell_guard *g,uint64_t generation){ if(g->generation!=generation){memset(g,0,sizeof(*g));
 g->generation=generation;
 } }
-bool actell_guard_accept(actell_guard*g,uint64_t generation,const char*id){
- if(!generation||generation!=g->generation||!actell_id_valid(id)||g->used>=ACTELL_HISTORY)return false;
-
- for(unsigned i=0;
-i<g->used;
-i++)if(!strcmp(g->receipts[i].id,id))return false;
-
- strcpy(g->receipts[g->used++].id,id);
-return true;
-
+actell_admission actell_guard_admit(actell_guard *g,uint64_t generation,const char *id,
+                                    const char *op,const unsigned char digest[ACTELL_ID_DIGEST]) {
+ if(!generation || generation!=g->generation || !actell_id_valid(id) || !actell_op_valid(op) || !digest)
+     return ACTELL_ADMIT_INVALID;
+ for(unsigned i=0;i<g->used;i++)
+     if(!strcmp(g->receipts[i].id,id))
+         return g->receipts[i].finished ? ACTELL_ADMIT_FINISHED : ACTELL_ADMIT_PENDING;
+ for(unsigned i=0;i<g->write_used;i++)
+     if(!memcmp(g->write_ids[i],digest,ACTELL_ID_DIGEST))return ACTELL_ADMIT_FINISHED;
+ bool mutates=actell_op_mutates(op);
+ unsigned limit=!strcmp(op,"runs.cancel") ? ACTELL_WRITE_HISTORY : ACTELL_WRITE_HISTORY-ACTELL_STOP_RESERVE;
+ if(mutates && g->write_used>=limit)return ACTELL_ADMIT_WRITE_LIMIT;
+ unsigned slot=g->used;
+ if(slot==ACTELL_HISTORY) {
+     for(unsigned i=0;i<ACTELL_HISTORY;i++) {
+         unsigned candidate=(g->next_slot+i)%ACTELL_HISTORY;
+         if(g->receipts[candidate].finished) {slot=candidate;break;}
+     }
+     if(slot==ACTELL_HISTORY)return ACTELL_ADMIT_BUSY;
+ } else g->used++;
+ g->next_slot=(slot+1)%ACTELL_HISTORY;
+ memset(&g->receipts[slot],0,sizeof(g->receipts[slot]));
+ strcpy(g->receipts[slot].id,id);
+ g->receipts[slot].mutates=mutates;
+ if(mutates)memcpy(g->write_ids[g->write_used++],digest,ACTELL_ID_DIGEST);
+ return ACTELL_ADMIT_NEW;
+}
+void actell_guard_unsent(actell_guard *g,uint64_t generation,const char *id,
+                         const unsigned char digest[ACTELL_ID_DIGEST]) {
+ if(!generation || generation!=g->generation || !id || !digest)return;
+ for(unsigned i=0;i<g->used;i++) {
+     actell_receipt *r=&g->receipts[i];
+     if(strcmp(r->id,id) || r->finished)continue;
+     if(r->mutates) {
+         for(unsigned j=0;j<g->write_used;j++)if(!memcmp(g->write_ids[j],digest,ACTELL_ID_DIGEST)) {
+             --g->write_used;
+             memcpy(g->write_ids[j],g->write_ids[g->write_used],ACTELL_ID_DIGEST);
+             memset(g->write_ids[g->write_used],0,ACTELL_ID_DIGEST);
+             break;
+         }
+     }
+     --g->used;
+     g->receipts[i]=g->receipts[g->used];
+     memset(&g->receipts[g->used],0,sizeof(g->receipts[g->used]));
+     return;
+ }
 }
 bool actell_guard_finish(actell_guard*g,uint64_t generation,const char*id){
  if(generation!=g->generation)return false;

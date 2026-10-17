@@ -4,6 +4,8 @@ English | [简体中文](README.zh-CN.md)
 
 An independent Actell extension project for Muse Gadget SDK, targeting Waveshare ESP32-S3-Touch-AMOLED-2.16 with an optional headless configuration. Muse handles planning; the device component calls Actell over HTTPS/HMAC, using Actell's authorization, approval, and execution queue.
 
+[Simple LAN pairing (SLAN/1)](docs/slan-pairing.md) lets Muse request a connection from device settings and receive credentials after approval on iPhone. First pairing uses TOFU on trusted Wi-Fi and does not resist an active LAN attacker; later connections pin the exact certificate. Bonjour locates the network address; its TXT host supplies the stable TLS name and SNI, allowing IP changes without replacing the saved identity. Older pairing advertisements without host require an app update. No new BLE service, QR flow or ESP HTTPS server is used.
+
 ## Repository layout
 
 | Directory | Contents |
@@ -52,6 +54,13 @@ Optional [Waveshare 2.16 controls](bridge/extensions/waveshare-216-controls/READ
 - [Optional avatar activity](docs/optional-avatar-events.md)
 - [Muse skill](bridge/extensions/skills/gadget-actell-remote/SKILL.md)
 - [Provenance and licensing](THIRD_PARTY.md)
+
+Actell command descriptions include the phone-tool workflow and parameter examples; a separate skill injection is not required.
+Completed phone-tool JSON results use a bounded 256 KiB receiver; oversize reads are reported separately from network failures.
+Actell settings include a persistent Auto-connect switch; enabled by default, it retries the saved pairing every 30 seconds without replaying actions. Clock synchronization also wakes a disconnected saved pairing immediately, while respecting disabled auto-connect and paused retries.
+Completed duplicate invokes return a safe reconciliation error; read-only queries recycle finished work slots while mutating invoke IDs retain bounded protection against replay.
+Reconnect failures and Cancel preserve saved pairing; only an explicit Forget pairing removes it.
+Pair with Actell automatically requests the single open pairing window; approve the Muse on iPhone. The ESP32 no longer displays service names as phone choices. Multiple open windows require narrowing to one target.
 
 Maintain both indexes alongside implementation changes. Keep entries brief and organized by category, without dates or numbering; implementation, setup, and validation details belong in the linked guides.
 

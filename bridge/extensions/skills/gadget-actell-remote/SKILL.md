@@ -14,7 +14,7 @@ AI planner for this workflow; retain its existing approval/execution queue.
 ## Preconditions
 
 1. The user must have completed official Muse setup and separately authorized the
-   Actell companion through trusted USB bootstrap and the iPhone per-device scopes.
+   Actell companion through SLAN in device settings and the iPhone per-device scopes.
    Never request connection secrets in a prompt, put them in a command, or use the
    public Python mock secret against a real device. Do not bypass certificate checks.
 2. Use only the gadget's actually advertised `actell.rpc` / `actell.image` commands.
@@ -61,5 +61,54 @@ text interface to real Muse typed-turn/cancel APIs, never a secret provisioning
 page. The optional approved avatar uses only confirmed running/completed read or
 write activity; presentation never controls execution or waits before results.
 
-Target compilation has passed in the cloud; no hardware was flashed and no real
-account/device/image-visibility test has been claimed. See the local-only reports under `local/validation/`; these are not part of the shared repository.
+Tool descriptions and parameter examples are advertised through official `commands_v2`; this file does not have to be injected into model context. Build, device connection and phone-tool execution are separate acceptance gates. Image visibility remains unverified. Local-only evidence lives under `local/validation/`, outside shared source.
+
+## Discover and perform one read-only call
+
+The first actual command arguments are `{"op":"capabilities","params_json":"{}"}`.
+Read the returned `payload.tools`; choose the actual app-listing tool and its exact
+argument schema. Do not substitute a guessed tool name or select a screen mutation.
+
+Then call `runs.open` with a fresh `run_id` and integer `deadline_ms` calculated
+from current UTC Unix milliseconds (for example, now + 120000). Call `tools.call`
+with that same run ID, a fresh `call_id`, a deadline no later than the run deadline,
+the returned tool name, and arguments matching its schema. These are object fields
+inside the JSON-encoded string `params_json`, not extra top-level command parameters.
+
+A complete construction example (values must come from the current capability result):
+
+```python
+import json, time, uuid
+run_id, call_id = str(uuid.uuid4()), str(uuid.uuid4())
+deadline = int(time.time() * 1000) + 120000
+open_args = {"op": "runs.open", "params_json": json.dumps({
+    "run_id": run_id, "deadline_ms": deadline})}
+# chosen_tool / chosen_arguments are taken from payload.tools, never invented.
+call_args = {"op": "tools.call", "params_json": json.dumps({
+    "run_id": run_id, "call_id": call_id, "deadline_ms": deadline,
+    "tool": chosen_tool, "arguments": chosen_arguments})}
+poll_args = {"op": "calls.get", "params_json": json.dumps({
+    "run_id": run_id, "call_id": call_id})}
+```
+
+Submit `call_args` once, then poll `poll_args`. Wait for iPhone approval if required.
+Only `payload.state == "succeeded"` proves completion; use `payload.result` for the
+read-only result. Never equate a model's explanation with a confirmed phone tool call.
+
+## Report availability without guessing
+
+`capabilities` describes supported tools and routes; it is not a live connection
+health report. A combined run-admission message about unlocked/foreground/idle/route
+state does not identify the failed check. Report that the run was refused and the
+exact returned error. Do not infer a lock state, foreground state or route outage,
+and do not propose deleting or resetting pairing for an execution-admission error.
+
+## Invocation receipt limits
+
+A completed duplicate invoke returns `invoke_result_unavailable`: the gadget does
+not retain proof of result delivery or the original outcome. Reconcile the original
+run/call with a new read-only invoke; never create a replacement phone action.
+Read-only work slots recycle after completion. Mutating invoke IDs retain separate
+bounded protection within the control generation. `write_receipt_limit` rejects a
+new request before queueing; reads remain available and `runs.cancel` has reserved
+capacity. Do not reconnect or replay actions to bypass capacity protection.

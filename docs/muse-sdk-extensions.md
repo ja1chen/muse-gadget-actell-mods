@@ -4,6 +4,7 @@
 
 - **2.16 独立按键**：增加左键扬声器、中键休眠/唤醒与长按关机、右键 Talk，以及仅显示状态的三图标；沿用触屏 Speaker 与手机 BLE 设置入口，提供固定基线检查、幂等应用和安全 app 槽更新；已通过启动与基础按键/图标人工核查，完整真机验收待完成。见 [按键扩展](../bridge/extensions/waveshare-216-controls/README.md)。
 - **Actell 手机工具**：让 Muse 通过设备的 Wi-Fi HTTPS/HMAC 调用 Actell，复用其授权、审批、运行管理和工具执行队列。见 [组件说明](../bridge/extensions/gadget-actell/README.md)。
+- **Simple LAN 配对**：发现阶段分离网络地址与固定 TLS 身份名，支持同身份换 IP，旧版广播明确拒绝；设备页面区分首次配对与重连，唯一配对窗口自动申请、由手机允许，多窗口歧义不扇出；显示批准、领取与最终确认阶段，新申请默认名称为 Muse Gadget，旧待完成配对保留原名称；增加发现、手机允许后的凭据领取、pending_ack/active 保存与 hello 重试；首次使用可信局域网 TOFU，后续固定证书，无 BLE/扫码/设备端 server。主机与目标构建不代表真机联调通过。工具注册携带手机用途、参数、调用示例和审批语义。设置首页显示认证连接状态，支持位于配对操作下方、持久保存的自动重连开关；重连失败与取消保留配对，仅显式移除删除；认证请求须经本次启动的网络校时，发现后再取签名时间，避免 RTC 偏差导致拒绝；校时成功唤醒自动重连，不绕过用户关闭、取消或拒绝后的暂停。结果接收支持有界的大 JSON 并区分限额与网络故障，串口阶段诊断覆盖 worker 与控制结果队列，不记录参数或身份；完成重复请求同步回应，工作槽回收与独立写请求去重保护并存。见 [配对说明](slan-pairing.md)。
 - **可信 USB 配置**：提供物理按键控制的开发配置入口，用于导入 Actell 连接邀请，默认关闭。见 [初始配置说明](../bridge/extensions/gadget-actell/README.md#trusted-one-time-bootstrap)。
 - **实验图片回传**：提供受限缩略图回传，默认关闭；真实 Muse 模型图像输入仍需验证。见 [设备 V2 协议](protocol/gadget-v2.md)。
 - **Pebble 角色与动作**：提供原创角色和基础状态动画，可选显示手机读写活动；动作反馈独立于工具执行。见 [角色说明](../bridge/extensions/avatar/README.md) 与 [可选活动反馈](optional-avatar-events.md)。

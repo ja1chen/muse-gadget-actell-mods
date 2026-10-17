@@ -4,6 +4,8 @@
 
 Muse Gadget SDK 的独立 Actell 扩展工程，面向 Waveshare ESP32-S3-Touch-AMOLED-2.16，并提供可选无屏配置。Muse 负责规划，设备端组件通过 HTTPS/HMAC 调用 Actell，复用 Actell 的授权、审批和执行队列。
 
+[Simple LAN 配对（SLAN/1）](docs/slan-pairing.md)支持从设备设置申请连接，经手机允许后自动领取凭据。首次采用可信 Wi-Fi 上的 TOFU，不抵御局域网主动中间人；后续固定精确证书。Bonjour 提供网络地址，TXT host 提供稳定的 TLS 校验名和 SNI，IP 改变不会替换保存的身份；缺少 host 的旧版配对广播提示更新手机 App。无需新 BLE、扫码或 ESP HTTPS server。
+
 ## 目录
 
 | 目录 | 内容 |
@@ -52,6 +54,13 @@ python3 bridge/tools/dev.py mock
 - [可选角色动作](docs/optional-avatar-events.md)
 - [Muse skill](bridge/extensions/skills/gadget-actell-remote/SKILL.md)
 - [来源与许可](THIRD_PARTY.md)
+
+Actell 工具注册自带手机操作流程、参数与调用示例，无需额外注入 skill 上下文。
+手机工具完成结果采用有界的 256 KiB JSON 接收，超限与网络故障分别报告。
+Actell 设置提供持久保存的自动连接开关，默认开启，每 30 秒尝试恢复已保存的配对连接，不重放操作。校时成功会立即唤醒尚未连接的保存配对，仍遵守自动连接关闭及重试暂停状态。
+已完成的重复调用会立即返回安全对账错误；只读查询可回收工作槽，写调用保留独立有界去重保护，避免回收后重放。
+重连失败和取消均保留已保存的配对，只有明确选择 Forget pairing 才会删除。
+Pair with Actell 会自动向唯一开放的配对窗口发送申请，由 iPhone 选择并允许 Muse；ESP32 不再显示服务名列表让用户选手机，多窗口时提示只保留目标窗口。
 
 两份索引随实现同步维护，按类别简述差异，不写日期、不使用编号；实现、配置和验证细节保留在链接的详细文档中。
 

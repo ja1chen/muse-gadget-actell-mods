@@ -20,7 +20,32 @@
      cJSON_AddItemToObject(params, "commands_v2", commands);
      cJSON_AddItemToObject(root, "params", params);
  
-@@ -1953,6 +1959,9 @@
+@@ -1465,15 +1471,23 @@
+         cJSON_Delete(result);
+         return;
+     }
++#if CONFIG_ACTELL_BRIDGE
++    ESP_LOGI(TAG, "invoke result phase=enqueue_begin pending=%u", (unsigned)uxQueueMessagesWaiting(s_result_q));
++#endif
+     pending_result pr;
+     pr.session_generation = session_generation;
+     pr.request_id = strdup(request_id);
+     pr.result = result;
+     if (pr.request_id == nullptr) {
++        ESP_LOGW(TAG,"invoke result phase=allocation_failed");
+         cJSON_Delete(result);
+         return;
+     }
+-    if (xQueueSend(s_result_q, &pr, pdMS_TO_TICKS(100)) != pdTRUE) {
++    bool enqueued=xQueueSend(s_result_q, &pr, pdMS_TO_TICKS(100)) == pdTRUE;
++#if CONFIG_ACTELL_BRIDGE
++    ESP_LOGI(TAG,"invoke result phase=enqueue_done accepted=%d",enqueued);
++#endif
++    if (!enqueued) {
+         free(pr.request_id);
+         cJSON_Delete(result);
+         ESP_LOGW(TAG, "result queue full, dropping result for %s", request_id);
+@@ -1953,6 +1967,9 @@
      session_generation = noise_ctrl_next_session_generation(
          s_session_generation_counter);
      s_session_generation_counter = session_generation;
@@ -30,7 +55,42 @@
  
      // 4. Open POST /link-control stream
      {
-@@ -2295,6 +2304,9 @@
+@@ -2161,6 +2178,18 @@
+                 control_tx.is_heartbeat = true;
+             }
+         }
++#if CONFIG_ACTELL_BRIDGE
++        static int64_t next_result_wait_log;
++        if ((uxQueueMessagesWaiting(s_result_q) || (control_tx.json && !control_tx.is_registration && !control_tx.is_heartbeat))
++            && esp_timer_get_time() >= next_result_wait_log) {
++            next_result_wait_log=esp_timer_get_time()+5000000;
++            ESP_LOGI(TAG,"invoke result phase=tx_state pending=%u retained=%d offset=%u bytes=%u dma_free=%u dma_largest=%u",
++                (unsigned)uxQueueMessagesWaiting(s_result_q),control_tx.json!=nullptr,
++                (unsigned)control_tx.json_offset,(unsigned)control_tx.json_len,
++                (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
++                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA));
++        }
++#endif
+         pending_result pr;
+         while (!control_tx.json && noise_tx_has_dma_headroom(nullptr)
+                && xQueueReceive(s_result_q, &pr, 0) == pdTRUE) {
+@@ -2171,9 +2200,15 @@
+                 cJSON_Delete(pr.result);
+                 continue;
+             }
++#if CONFIG_ACTELL_BRIDGE
++            ESP_LOGI(TAG,"invoke result phase=dequeue");
++#endif
+             // wrap_result_json consumes the result tree. Retain its output
+             // directly; there is no second whole-message allocation/copy.
+             char *json = wrap_result_json(pr.request_id, pr.result);
++#if CONFIG_ACTELL_BRIDGE
++            ESP_LOGI(TAG,"invoke result phase=serialize bytes=%u",json?(unsigned)strlen(json):0);
++#endif
+             free(pr.request_id);
+             if (json) {
+                 control_tx = {json, strlen(json), 0, false, session_generation};
+@@ -2295,6 +2330,9 @@
      }  // end event loop scope
  
  cleanup:
@@ -63,6 +123,16 @@
      if (strcmp(command, "device.list_vms") == 0) {
          return list_vms_command();
      }
+@@ -2526,6 +2533,9 @@
+     heap_snapshot("after config+id");
+ 
+     wifi_mgr_init();
++#if CONFIG_ACTELL_BRIDGE
++    actell_bridge_init();
++#endif
+     heap_snapshot("after wifi_mgr_init");
+ 
+     noise_ctrl_init(identity_node_id(), identity_ble_name(), on_ws_control_status);
 --- a/esp32/main/main.c
 +++ b/esp32/main/main.c
 @@ -21,7 +21,14 @@
@@ -90,3 +160,139 @@
      nvs_flash
      esp_wifi
      esp_event
+--- a/esp32/components/muse/muse_settings_ui.c
++++ b/esp32/components/muse/muse_settings_ui.c
+@@ -15,6 +15,9 @@
+  */
+ 
+ #include "muse_settings_ui.h"
++#if CONFIG_ACTELL_BRIDGE
++#include "actell_bridge.h"
++#endif
+ 
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -61,6 +64,9 @@
+ static lv_obj_t *s_tile;
+ static lv_obj_t *s_current;
+ static lv_obj_t *s_home, *s_wifi, *s_hatch, *s_ble, *s_sound, *s_sleep, *s_battery, *s_power, *s_text;
++#if CONFIG_ACTELL_BRIDGE
++static lv_obj_t *s_actell, *s_home_actell;
++#endif
+ 
+ /*
+  * Only home is kept. A sub-page is built when it opens and deleted on the way
+@@ -359,7 +365,11 @@
+ 
+ static void drop(lv_obj_t *p)
+ {
+-    lv_obj_t **const pages[] = { &s_wifi, &s_hatch, &s_ble, &s_sound, &s_sleep, &s_battery, &s_power, &s_text };
++    lv_obj_t **const pages[] = {
++#if CONFIG_ACTELL_BRIDGE
++        &s_actell,
++#endif
++        &s_wifi, &s_hatch, &s_ble, &s_sound, &s_sleep, &s_battery, &s_power, &s_text };
+     for (size_t i = 0; i < sizeof(pages) / sizeof(pages[0]); i++) {
+         if (*pages[i] == p) {
+             *pages[i] = NULL;
+@@ -1238,6 +1248,56 @@
+ 
+ /* ---------- Home ---------- */
+ 
++#if CONFIG_ACTELL_BRIDGE
++static lv_obj_t *s_actell_status,*s_actell_connect,*s_actell_retry,*s_actell_cancel,*s_actell_forget,*s_actell_help,*s_actell_auto;
++static unsigned s_actell_revision=UINT32_MAX;
++static void on_actell_scan(lv_event_t *e){(void)e;actell_bridge_pair_action(ACTELL_PAIR_SCAN,0);}
++static void on_actell_retry(lv_event_t *e){(void)e;actell_bridge_pair_action(ACTELL_PAIR_RETRY,0);}
++static void on_actell_cancel(lv_event_t *e){(void)e;actell_bridge_pair_cancel();}
++static void on_actell_forget(lv_event_t *e){(void)e;actell_bridge_pair_action(ACTELL_PAIR_FORGET,0);}
++static void on_actell_auto(lv_event_t *e){
++    bool enabled=lv_obj_has_state(lv_event_get_target(e),LV_STATE_CHECKED);
++    if(!actell_bridge_pair_action(ACTELL_PAIR_AUTO_CONNECT,enabled?1:0))s_actell_revision=UINT32_MAX;
++}
++static void build_actell_page(lv_obj_t *tile){
++    lv_obj_t *list;
++    s_actell=page(tile,"ACTELL",true,&list);
++    s_actell_status=note(list,"");
++    s_actell_connect=button(list,"Pair with Actell",COLOR_ACCENT,on_actell_scan,NULL);
++    s_actell_retry=button(list,"Reconnect",COLOR_TEXT,on_actell_retry,NULL);
++    s_actell_cancel=button(list,"Cancel",COLOR_TEXT,on_actell_cancel,NULL);
++    s_actell_forget=button(list,"Forget pairing",COLOR_DANGER,on_actell_forget,NULL);
++    s_actell_auto=switch_row(list,"Auto-connect",false,on_actell_auto);
++    s_actell_help=note(list,"");
++    s_actell_revision=UINT32_MAX;
++}
++static void tick_actell(void){
++    actell_pair_status status;
++    actell_bridge_pair_status(&status);
++    if(status.revision==s_actell_revision)return;
++    s_actell_revision=status.revision;
++    set_text(s_actell_status,status.message);
++    lv_obj_set_state(s_actell_auto,LV_STATE_CHECKED,status.auto_connect);
++    lv_obj_set_state(s_actell_auto,LV_STATE_DISABLED,status.busy);
++    lv_obj_set_flag(s_actell_connect,LV_OBJ_FLAG_HIDDEN,status.paired||status.busy);
++    lv_obj_set_flag(s_actell_retry,LV_OBJ_FLAG_HIDDEN,!status.paired||status.busy);
++    lv_obj_set_flag(s_actell_forget,LV_OBJ_FLAG_HIDDEN,!status.paired||status.busy);
++    lv_obj_set_flag(s_actell_cancel,LV_OBJ_FLAG_HIDDEN,!status.busy);
++    set_text(lv_obj_get_child(s_actell_retry,0),status.pending?"Complete pairing":"Reconnect");
++    set_text(s_actell_help,status.pending
++        ?"iPhone approval received. Complete pairing to finish saving the connection."
++        :status.paired
++        ?"Pairing is saved. Keep Actell open on the same Wi-Fi, then return to Muse to use it. Auto-connect retries the saved pairing every 30 seconds. Reconnect connects now; no new approval is needed."
++        :"On iPhone, open Actell and tap Add Muse. Tap Pair with Actell here to send the request, then approve this Muse on iPhone.");
++    lv_obj_set_state(s_actell_connect,LV_STATE_DISABLED,status.busy||status.paired);
++    lv_obj_set_state(s_actell_retry,LV_STATE_DISABLED,status.busy||!status.paired);
++    lv_obj_set_state(s_actell_forget,LV_STATE_DISABLED,status.busy||!status.paired);
++    lv_obj_set_state(s_actell_cancel,LV_STATE_DISABLED,!status.busy);
++
++}
++static const page_t ACTELL={&s_actell,build_actell_page};
++#endif
++
+ static const page_t WIFI = { &s_wifi, build_wifi_page };
+ static const page_t HATCH = { &s_hatch, build_hatch_page };
+ static const page_t BLE = { &s_ble, build_ble_page };
+@@ -1252,6 +1312,9 @@
+     s_home = page(tile, "SETTINGS", false, &list);
+     row(list, LV_SYMBOL_WIFI, "Wi-Fi", &s_home_wifi, on_nav, (void *)&WIFI);
+     row(list, LV_SYMBOL_HOME, "Muse", &s_home_hatch, on_nav, (void *)&HATCH);
++#if CONFIG_ACTELL_BRIDGE
++    row(list, LV_SYMBOL_CALL, "Actell", &s_home_actell, on_nav, (void *)&ACTELL);
++#endif
+     row(list, LV_SYMBOL_BLUETOOTH, "Bluetooth", &s_home_ble, on_nav, (void *)&BLE);
+     row(list, LV_SYMBOL_VOLUME_MAX, "Sound", &s_home_sound, on_nav, (void *)&SOUND);
+     row(list, LV_SYMBOL_EYE_CLOSE, "Sleep", &s_home_sleep, on_nav, (void *)&SLEEP);
+@@ -1270,6 +1333,11 @@
+     muse_hatch_status_t h;
+     muse_hatch_status(&h);
+     set_text(s_home_hatch, muse_hatch_state_name(h.state));
++#if CONFIG_ACTELL_BRIDGE
++    actell_pair_status actell;
++    actell_bridge_pair_status(&actell);
++    set_text(s_home_actell, actell_bridge_pair_summary(&actell));
++#endif
+ 
+     muse_ble_status_t b;
+     muse_ble_status(&b);
+@@ -1325,6 +1393,10 @@
+         tick_wifi();
+     } else if (s_current == s_hatch) {
+         tick_hatch();
++#if CONFIG_ACTELL_BRIDGE
++    } else if (s_current == s_actell) {
++        tick_actell();
++#endif
+     } else if (s_current == s_ble) {
+         tick_ble();
+     } else if (s_current == s_sound) {
+--- a/esp32/components/muse/CMakeLists.txt
++++ b/esp32/components/muse/CMakeLists.txt
+@@ -124,7 +124,7 @@
+     EMBED_FILES ${embed}
+     WHOLE_ARCHIVE   # muse_lv_mem.c provides symbols only LVGL references
+     REQUIRES esp_driver_gpio esp_driver_i2c
+-    PRIV_REQUIRES ${muse_priv_requires}
++    PRIV_REQUIRES ${muse_priv_requires} actell_bridge
+ )
+ 
+ if(CONFIG_MUSE_ENABLED)

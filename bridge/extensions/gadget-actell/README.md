@@ -15,12 +15,26 @@ python bridge/extensions/gadget-actell/tools/stage.py /path/to/sdk-copy --check
 python bridge/extensions/gadget-actell/tools/stage.py /path/to/sdk-copy
 ```
 
-The patch has five hooks: official registration, official invoke dispatch, Noise
-session creation/teardown, optional trusted-USB setup before normal app startup,
-and the component dependency. It does not alter official BLE pairing, accounts,
-transport framing, screen drivers, headless APIs or avatar rendering. The component
-implementation is compiled only when enabled; its build dependencies remain declared
-for ESP-IDF pre-configuration resolution, including in disabled builds.
+The patch connects official registration, invoke dispatch, Noise session lifecycle,
+optional development USB setup, component dependencies, and the Actell settings page.
+It starts the existing Actell worker after storage/network initialization. Official
+BLE, accounts, screen drivers, headless APIs and avatar implementation stay intact.
+The component is compiled only when enabled; dependencies remain declared during
+ESP-IDF pre-configuration resolution, including disabled builds.
+
+## Simple LAN pairing
+
+Normal pairing uses [SLAN/1](../../../docs/slan-pairing.md): enable the existing iPhone
+listener and Add Muse window, open Actell in device settings and tap Pair with Actell,
+then allow its request on iPhone. Credentials are saved as pending_ack before an
+authenticated hello; only `pairing_state=active` completes pairing. Pending permissions stay empty; first activation applies the default scopes,
+and later reconnects preserve user changes. No manual certificate transfer or USB bootstrap is required.
+
+First pairing is TOFU on trusted Wi-Fi and does not resist an active LAN attacker.
+Request/claim stay bound to one temporary DER pin; subsequent RPC uses the saved
+exact leaf and existing HMAC. No BLE/QR/ESP server or extra permanent task is added.
+The public build overlay contains empty account/Wi-Fi settings and disables signing;
+full build success does not establish device/iPhone acceptance.
 
 Set `CONFIG_ACTELL_BRIDGE=y`, `CONFIG_HOMEHUB_TUNNEL=n` with ESP-IDF **v6.0.1**.
 Use the upstream board overlay. Both display and headless builds use this exact
@@ -28,7 +42,7 @@ component. Apply the separate headless patch only for its text I/O. No code assu
 that an arbitrary board has a screen, camera, microphone, touch input or button.
 No firmware was flashed by these development tools.
 
-## Trusted one-time bootstrap
+## Trusted one-time bootstrap (development compatibility)
 
 Actell generates its independent TLS identity and a short-lived invitation. The
 invitation contains a secret: never paste it into chat or put it in source control.
@@ -60,13 +74,23 @@ LAN page; that development text page retains its existing isolated-LAN warning.
 
 After bootstrap, mDNS only locates a candidate with the matching public fingerprint
 TXT and port. Advertised hostnames/IPs never become a trust anchor. Requests connect
-to its IPv4 address, with the OOB hostname for TLS verification and HTTP Host. The
-only trust anchor is the OOB non-CA leaf certificate; TLS handshake proof-of-key, hostname and
+to its IPv4 address, with the saved hostname for TLS verification and HTTP Host. The
+only trust anchor is the saved non-CA leaf certificate; TLS handshake proof-of-key, hostname and
 validity verification stay enabled. No arbitrary-certificate acceptance or skip-CN
 option exists. The currently implemented discovery route is IPv4; IPv6-only LANs
 fail discovery rather than silently use a weaker connection.
 
 ## Official command interface
+
+The firmware advertises self-contained iPhone-tool instructions, exact operation
+fields, discovery/polling examples and approval/reconciliation rules in the official
+`commands_v2` descriptions. No separate model-context injection is required. Start
+with `{"op":"capabilities","params_json":"{}"}`, then use the returned tool schemas.
+See the [call sequence](../skills/gadget-actell-remote/SKILL.md#discover-and-perform-one-read-only-call).
+Native regression executes the real registration serializer with synthetic identity
+and the optional tools enabled, ensuring it stays within the SDK's 8 KiB limit.
+Runtime audit lines contain only operation/outcome/fixed state words, never IDs,
+phone contents, parameters, credentials or tool results.
 
 `actell.rpc` requires string `op` and string `params_json` containing a bounded,
 unique-key JSON object. Allowed operations: `companion.hello`, `capabilities`,
@@ -94,16 +118,34 @@ pixel decode. The iOS thumbnail producer must decode successfully before deliver
 ## Bounds and outcome semantics
 
 - One worker; three queued requests; parameters ≤4 KiB; HTTP requests ≤8 KiB;
-  JSON responses ≤16 KiB; JPEG ≤256 KiB; result payload under 360 KiB.
+  JSON responses ≤256 KiB; JPEG ≤256 KiB; result payload under 360 KiB.
 - Registration is small (two commands maximum), preserving the SDK's 8-KiB budget.
   Full board registration must still be measured in target/runtime validation.
 - Sixty-second advertised timeout, 40-second local queue deadline, 15-second network
   observation budget plus bounded discovery. Socket I/O can consume its configured
   timeout before the next absolute-deadline check. No unbounded retries or queue.
-- Invocation ID receipts are retained for the whole Noise session (64 maximum).
-  Duplicate invokes do not resubmit or emit a second completion; exhaustion fails
-  closed until reconnect. Session changes discard queued old work. Each body-write
-  chunk is checked against generation/deadline, including after TLS connection.
+- Up to 64 live/recent invocation work slots are retained; only finished slots
+  are recycled, so sequential read-only queries do not exhaust a session budget.
+  A retained pending duplicate shares the original completion attempt. A completed
+  duplicate returns `invoke_result_unavailable` synchronously; it does not imply
+  delivery or nonexecution, and never resubmits a phone action. Reconcile original
+  run/call IDs using a new read-only invocation. Once an old read-only slot has been
+  recycled, that read-only ID may enter a fresh read-only query rather than a cached result;
+  the peer may still reject that ID under its anti-replay policy. Prefer a new
+  transport invocation ID when reconciling the same original run/call.
+- Accepted mutating invocation IDs also have independent SHA-256 tombstones for the
+  whole control generation, including uncertain outcomes and lost result delivery.
+  These fences survive work-slot recycling and apply even if a duplicate changes
+  its operation. There are 1,024 fences: ordinary writes stop at 992, leaving 32
+  additional entries for `runs.cancel`. At full write capacity only new writes are
+  rejected with `write_receipt_limit`; read-only reconciliation still works.
+  Do not reconnect or create replacement action IDs to bypass this protection.
+  This is a bounded local policy, not an unbounded result cache or durable deduplication
+  across control generations/reboots. Existing phone run/call reconciliation remains required.
+- Receipt state uses about 41 KiB, preferring PSRAM; initialization fails closed if
+  allocation fails. Queue rejection rolls back only a receipt known never to have
+  entered the worker. Session changes fence queued old work. Each body-write chunk
+  is checked against generation/deadline, including after TLS connection.
 - Exactly one result **submission attempt** per accepted live invocation. Upstream's
   bounded result queue can drop a result or old generation. This is not exactly-once
   network delivery. If a result is lost, query original run/call IDs.
@@ -125,7 +167,7 @@ pixel decode. The iOS thumbnail producer must decode successfully before deliver
 PYTHONPATH=bridge/host python3 -B -m unittest discover -s bridge/host/tests -p 'test_gadget_component.py' -v
 ```
 
-Host guard tests prove state-machine properties only. They do not establish target
+Host tests cover the real guards, SLAN codec, worker and NVS adapter with synthetic I/O. They do not establish target
 compilation, TLS interoperability, Bonjour operation, iPhone authorization, device
 execution, or model image visibility. Consult the separately recorded build results.
 
@@ -171,7 +213,8 @@ connects completed voice-turn replies to verified HTTPS streaming and the
 existing PCM playback path; real cloud/device playback requires separate
 validation. The USB `m` MP3 self-test checks decoding and speaker output only.
 
-The safe default firmware has setup OFF and **cannot accept its first invitation**.
+The default has USB setup OFF. Normal initial pairing uses the Actell settings page;
+only the development USB invitation path requires this option.
 Opt in deliberately when building the provisioning-capable development profile.
 For the exact Waveshare S3-Touch-AMOLED-2.16, append
 `overlays/sdkconfig.usb-waveshare-s3-216` last. The pinned official
@@ -204,3 +247,43 @@ plain state fields; time queries, rendering, allocation and network work remain
 outside the critical section. Host builds keep their original atomic seqlock.
 Both host branches run the same TTL/wraparound/toggle/frame tests; target builds
 validate the actual FreeRTOS headers. This adds no completion/celebration animation.
+
+### Completed result size and connection errors
+
+Queued receipts are small; `calls.get` may contain the full app-list result.
+The JSON response budget is 256 KiB, separate from the 8 KiB request budget.
+Known Content-Length responses allocate their bounded actual size; unknown-length
+responses grow incrementally within the same cap. Both still read in 1 KiB pieces.
+Oversized read results return `response_too_large`, not a fabricated network outage;
+mutating operations retain an unknown outcome and must never be replayed.
+Diagnostics report only response/limit byte counts, transport stage, and discovery
+filter counts. A zero identity match is not alone proof of changed credentials:
+SRV/interface eligibility and presence of the identity TXT field are separate checks.
+Keep the original run/call IDs for reconciliation and retain the saved host/pin.
+
+Actell 设置提供持久保存的 Auto-connect 开关，默认开启；启动与每 30 秒只读 hello 恢复已保存连接，校时成功唤醒未连接的保存配对立即尝试（不绕过关闭、取消或拒绝暂停），关闭后仍可手动 Reconnect。偏好与配对分别保存；自动重连不会删除配对或重放手机动作。
+
+串口 `phase=` 诊断覆盖 worker 等待/完成、结果交接、控制结果入队/取出、序列化及 DMA 等待；只记录固定阶段、操作名、耗时和字节/内存计数，不记录参数、内容或真实 ID。发送完成仅证明设备传输完成，不能替代平台收到结果的确认。
+
+The native receipt integration harness compiles the actual adapter/guard with the
+prepared SDK's cJSON dependency and synthetic scheduler, transport and PSA adapters.
+Prepare the SDK dependency under `local/build/slan-complete-sdk` before running it;
+without that cJSON source the integration test explicitly skips. Portable guard
+policy tests run independently. The harness covers lost completion delivery,
+completed duplicates, thousands of reads, retained write fences, cancellation
+reserve, queue rejection and generation changes; it makes no physical-device claim.
+
+Pairing records are deleted only by an explicit **Forget pairing** action. Manual
+Reconnect and automatic hello rejection, timeout, clock/storage-read failure and
+Cancel preserve saved trust and the reconnect entry. Rejection pauses background
+attempts until manual retry or an explicit Auto-connect enable. An active peer's
+successful reconnect does not rewrite credentials; only pending acknowledgement
+transitions to active. This fix does not recover a record erased by older firmware
+and does not import or restore old credential snapshots automatically.
+
+New pairing uses one ESP32 tap: open Add Muse on the target iPhone, tap Pair with
+Actell on the gadget, then approve that Muse in Actell. A single eligible pairing
+window is requested automatically; no service-name/phone-selection list is shown.
+Multiple eligible windows cause no pairing traffic and ask the user to keep only
+the target window open. First-time TLS trust, phone approval, and saved identity
+rules are unchanged. No parallel or sequential fan-out to other phones occurs.
