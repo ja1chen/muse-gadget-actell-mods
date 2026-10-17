@@ -25,7 +25,7 @@ class Pose(C.Structure):
                 ('level', C.c_float), ('happy', C.c_float), ('mouth_level', C.c_float), ('mouth_level_valid', C.c_bool)]
 
 
-source = (AVATAR / 'src/muse_pixel_160.c').read_text()
+source = (AVATAR / 'src/muse_pixel_geometry.c').read_text()
 instrumented = source
 replacements = {
     'static void head_and_ears(float cx,float hy){':
@@ -80,7 +80,7 @@ for enabled, lib in enumerate(libs):
     for i in range(200):
         lib.muse_pixel_render(C.byref(Pose(2, i * .04, i * .04, .5, 0)))
     result = dict(hypot_calls=calls.value, cache_misses=misses.value)
-    production = compile_lib(f'production-{enabled}', enabled, AVATAR / 'src/muse_pixel_160.c')
+    production = compile_lib(f'production-{enabled}', enabled, AVATAR / 'src/muse_pixel_geometry.c')
     for i in range(200):
         production.muse_pixel_render(C.byref(Pose(2, i * .04, i * .04, .5, 0)))
     samples = []

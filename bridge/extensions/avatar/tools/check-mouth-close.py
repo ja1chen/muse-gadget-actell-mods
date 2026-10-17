@@ -23,14 +23,14 @@ p.add_argument('--output',type=Path,default=ROOT/'local/validation/avatar-mouth-
 a=p.parse_args();a.output=a.output.resolve()
 if not a.output.is_relative_to(ROOT/'local'):p.error('Generated data must remain under local/')
 a.output.mkdir(parents=True,exist_ok=True)
-source=A/'src/muse_pixel_160.c'
+source=A/'src/muse_pixel_geometry.c'
 s=source.read_text()
 start=s.index('    else if(m==MUSE_MODE_SPEAKING) {',s.index('    float surprise=0;'))
 end=s.index('    else if(m==MUSE_MODE_LISTENING)',start)
 previous=s[:start]+'    else if(m==MUSE_MODE_SPEAKING) precise_oval(cx,ey+7,1.8f,.65f+level*2.5f,INK);\n'+s[end:]
 previous=previous.replace('    float mouth_level=p->mouth_level_valid ? (isfinite(p->mouth_level)?clamp(p->mouth_level):0) : level;\n','')
 assert hashlib.sha256(previous.encode()).hexdigest()=='acb4f40ed2d99b8c1f259c37d1ded1b810d7dc10ab374a0576b5c50e1402c3d2'
-assert hashlib.sha256(source.read_bytes()).hexdigest()==json.loads((A/'source-manifest.json').read_text())['sha256']['src/muse_pixel_160.c']
+assert hashlib.sha256(source.read_bytes()).hexdigest()==json.loads((A/'source-manifest.json').read_text())['sha256']['src/muse_pixel_geometry.c']
 baseline=a.output/'baseline.c';baseline.write_text(previous)
 prior_closure=previous.replace('    else if(m==MUSE_MODE_SPEAKING) precise_oval(cx,ey+7,1.8f,.65f+level*2.5f,INK);\n','    else if(m==MUSE_MODE_SPEAKING) {\n      /* Closure only: leave the upstream level envelope and open mouth intact.\n       * pose.level <= .05 closes to a one-native-pixel line (160-grid).\n       * Input normalization above maps non-finite values to zero. */\n      if(level<=.05f) {\n        int mx=(int)lroundf((cx+.5f)*2.5f);\n        int my=(int)lroundf((ey+7.5f)*2.5f+nod_offset);\n        for(int x=mx-4;x<=mx+4;x++)native_pixel(x,my,INK);\n      } else precise_oval(cx,ey+7,1.8f,.65f+level*2.5f,INK);\n    }\n')
 assert hashlib.sha256(prior_closure.encode()).hexdigest()=='33ba3c099bcd6ad3a611b376069dd915014bb73c143ef8b57ee2cd8f0186529b'

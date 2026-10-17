@@ -8,7 +8,7 @@ V=args.output;V.mkdir(parents=True,exist_ok=True)
 common=shlex.split(os.environ.get('CC','clang'))+['-O2','-DACTELL_AVATAR_TEST','-DMUSE_AVATAR_ROUNDED_FACE=0','-DMUSE_AVATAR_SHADING=0','-I'+str(args.include),'-I'+str(A/'include')]
 def run(cmd): return sp.run(list(map(str,cmd)),check=True,capture_output=True,text=True)
 # Shared exact v13 reference and staged implementation expose the same API.
-for label,src in [('reference',A/'tests/reference_v13.c'),('new',A/'src/muse_pixel_160.c'),('old',A/'src/muse_pixel.c')]:
+for label,src in [('reference',A/'tests/reference_v13.c'),('new',A/'src/muse_pixel_geometry.c'),('old',A/'src/muse_pixel.c')]:
  run([*common,'-shared','-fPIC','-DAVATAR_SHARED',src,A/'src/actell_avatar.c',A/'tests/host_test.c','-lm','-o',V/f'{label}.so'])
 class Pose(C.Structure):_fields_=[('mode',C.c_int),('t',C.c_float),('mode_t',C.c_float),('level',C.c_float),('happy',C.c_float),('mouth_level',C.c_float),('mouth_level_valid',C.c_bool)]
 libs=[C.CDLL(str(V/f'{x}.so')) for x in ['reference','new']]

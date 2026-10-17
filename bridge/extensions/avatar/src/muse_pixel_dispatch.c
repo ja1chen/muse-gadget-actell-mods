@@ -8,3 +8,7 @@
 #else
 #include "muse_pixel.c"
 #endif
+
+#ifdef ESP_PLATFORM
+#include "muse_pixel_aa_init.c"
+#endif

@@ -40,8 +40,7 @@ Default rounded face and shading are enabled. Disable both for the
 original face and palette; the independent speaking-mouth behavior below still
 applies to the 160-grid UI. Exact original-v13 comparisons use the legacy mouth
 channel above its quiet threshold. `CONFIG_MUSE_AVATAR_V2=n` still selects the unchanged 64-grid
-character. Offline antialiasing is deferred and is absent from the active source,
-staging and build paths; no generated AA assets are required.
+character. Offline raw AA is enabled by default for the selected appearance. See the [raw-AA guide](../../../docs/avatar-raw-aa.md) for its separate resource, strict PSRAM requirement, generation and deployment. Missing/unusable assets preserve procedural rendering when PSRAM is available; AA is intentionally not pixel-identical to procedural geometry.
 
 ## Stable speaking mouth
 
@@ -151,17 +150,14 @@ rollback through later edits. Restore the backed-up custom avatar if needed.
 
 ## Memory and build validation
 
-V13 uses a 25,600-byte framebuffer, a 25,600-byte exact head-geometry cache and a
-1,024-byte scale table. Only enabling ESP-IDF
+The default raw-AA renderer uses a 51,200-byte framebuffer and 51,200-byte head cache, both required in external PSRAM, plus small control/scale buffers. It refuses an internal-memory image-buffer fallback. The procedural geometry reference uses a 25,600-byte framebuffer, a 25,600-byte exact head-geometry cache and a
+1,024-byte scale table. For the procedural reference, enabling ESP-IDF
 `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY` places the two large arrays in
-external BSS (51,200 bytes). Otherwise they consume internal static RAM; there is
+external BSS (51,200 bytes). This option is mandatory for production 160-grid raw-AA builds. In the standalone historical reference there is
 no runtime allocation fallback for these arrays. Enable external BSS only on a
 PSRAM board with working PSRAM initialization. The SDK dirty RGB565 heap cache
 grows from 8,192 to 51,200 bytes and retains its full-redraw allocation fallback.
-Including dirty scratch, the nominal increase is about 92 KiB, before target
-alignment/control state. Geometry changes use conservative squared-distance classification for head
-interiors/exteriors; the boundary band retains the original float-distance
-algorithm. Exact cache keys, animation timing and dirty rectangles are unchanged.
+For the historical procedural renderer, the nominal increase over the 64-grid path is about 92 KiB including dirty scratch, before target alignment/control state. Its squared-distance prefilter and original boundary-band distances remain the geometry reference. Raw-AA cache keys use the documented quantized poses; dirty/flush area can increase with coverage pixels, while animation timing formulas stay unchanged.
 The shaded update adds 64 bytes of palette RAM and 144 bytes of palette/threshold constants; no additional full-frame buffer or heap allocation is introduced. No device FPS, peak heap or power claim follows from host tests.
 
 With the existing ESP-IDF 6.0.1 environment activated and all extensions staged,
@@ -206,7 +202,7 @@ Dedicated mouth checks verify threshold-adjacent float32 levels, 9×1 closure, n
 off/on and records separate operation counts and uninstrumented host timings.
 See [listening performance](../../../docs/avatar-listening-performance.md) for
 limits, diagnosis and target A/B steps. LeakSanitizer is disabled; this is not a passed leak check. Reports are written
-to `local/validation/current/`.
+to `local/validation/current/`. When local raw assets are present, additional bound-AA sanitizers, PSRAM failure mocks, 2,000 unbound procedural comparisons, 2,160 bound frames, and 100 rebind cycles run; geometric prefilter/oracle checks explicitly use the retained procedural geometry source.
 
 Optional previews require Pillow and render actual C output:
 

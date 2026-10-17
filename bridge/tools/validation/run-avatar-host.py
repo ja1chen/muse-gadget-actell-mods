@@ -87,11 +87,12 @@ with tempfile.TemporaryDirectory(prefix='actell-avatar-host-', dir=temporary_roo
     fake.mkdir()
     section = '__DATA,__avatar_bss' if sys.platform == 'darwin' else '.ext_ram.bss'
     (fake / 'esp_attr.h').write_text(f'#define EXT_RAM_BSS_ATTR __attribute__((section("{section}")))\n')
+    (fake/'esp_memory_utils.h').write_text('#define esp_ptr_external_ram(p) ((p)!=0)\n')
     for branch in (0, 1):
-        (fake / 'sdkconfig.h').write_text(f'#define CONFIG_MUSE_AVATAR_V2 {branch}\n#define CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY 1\n')
+        (fake / 'sdkconfig.h').write_text(f'#define CONFIG_MUSE_AVATAR_V2 {branch}\n#define CONFIG_SPIRAM 1\n#define CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY 1\n')
         subprocess.run(shlex.split(os.environ.get('CC', 'clang')) + ['-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
             '-DESP_PLATFORM', '-I' + str(fake), '-I' + str(AVATAR / 'tests/esp_fakes'), '-I' + str(component),
-            '-c', str(staged), '-o', str(temp / f'esp-{branch}.o')], check=True)
+            '-c', str(component/'avatar'/('muse_pixel_160.c' if branch else 'muse_pixel_legacy.c')), '-o', str(temp / f'esp-{branch}.o')], check=True)
     subprocess.run([sys.executable, str(AVATAR / 'tools/check-v13.py'), '--include', str(component), '--output', str(temp)], check=True)
     shaded_output = ROOT / 'local/validation/avatar-shaded'
     subprocess.run([sys.executable,str(AVATAR/'tools/check-shaded.py'),'--include',str(component),'--output',str(shaded_output)],check=True)
@@ -106,6 +107,13 @@ with tempfile.TemporaryDirectory(prefix='actell-avatar-host-', dir=temporary_roo
     subprocess.run([sys.executable, str(AVATAR / 'tools/check-listening-performance.py'),
                     '--include', str(component), '--output', str(performance)], check=True)
     report['listening_performance'] = json.loads((performance / 'performance.json').read_text())
+    raw = ROOT/'local/build/avatar-raw-aa/assets/avatar-aa.raw'
+    if raw.is_file():
+        raw_output=ROOT/'local/validation/avatar-raw-aa'
+        subprocess.run([sys.executable,str(AVATAR/'tools/check-raw-aa.py'),'--include',str(component),'--raw',str(raw),'--output',str(raw_output)],check=True)
+        report['raw_aa']=json.loads((raw_output/'raw.json').read_text())
+    else:
+        report['raw_aa']={'bound_resource_checks':'skipped; raw resource not supplied'}
     # Refuse rollback over subsequent UI edits; restore exactly when unchanged.
     ui = component / 'muse_ui.c'
     installed = ui.read_bytes()
