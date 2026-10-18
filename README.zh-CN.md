@@ -1,4 +1,4 @@
-# Muse × Actell Bridge
+# muse-gadget-actell-mods
 
 [English](README.md) | 简体中文
 
@@ -10,45 +10,45 @@ Muse Gadget SDK 的独立 Actell 扩展工程，面向 Waveshare ESP32-S3-Touch-
 
 | 目录 | 内容 |
 |---|---|
-| `bridge/` | 本项目工程链路：host、extensions（含 skills）、patches、tools |
+| `mods/` | 本项目工程链路：host、extensions（含 skills）、patches、tools |
 | `upstream/` | Muse Gadget SDK 的 URL、固定 commit、归档哈希；不含完整 SDK 源码 |
 | `docs/` | 协议、架构和使用说明 |
 | `local/` | 本机资料，整体忽略，不纳入 Git 分享 |
 
-工程内部结构见 [bridge/README.md](bridge/README.md)，约定见 [AGENTS.md](AGENTS.md)。`LICENSE` 与 [THIRD_PARTY.md](THIRD_PARTY.md) 放在根目录，集中说明项目许可和第三方来源。本机日志、验证报告、缓存、构建、上游归档、凭据和真实截图分别放在 `local/` 的对应子目录。历史材料已保留于该目录，旧报告内的路径只代表当时环境。Avatar 的 `bridge/extensions/avatar/preview/` 也整体忽略，仅保留本机，不提交或上传。
+工程内部结构见 [mods/README.md](mods/README.md)，约定见 [AGENTS.md](AGENTS.md)。`LICENSE` 与 [THIRD_PARTY.md](THIRD_PARTY.md) 放在根目录，集中说明项目许可和第三方来源。本机日志、验证报告、缓存、构建、上游归档、凭据和真实截图分别放在 `local/` 的对应子目录。历史材料已保留于该目录，旧报告内的路径只代表当时环境。Avatar 的 `mods/extensions/avatar/preview/` 也整体忽略，仅保留本机，不提交或上传。
 
 ## 本机开发
 
 需要 Python 3.10+；完整主机测试还需要 Node.js 和 C 编译器。Python 客户端只使用标准库。
 
 ```sh
-python3 bridge/tools/dev.py test
-python3 bridge/tools/dev.py console --port 8766
+python3 mods/tools/dev.py test
+python3 mods/tools/dev.py console --port 8766
 # 或仅启动协议 mock：
-python3 bridge/tools/dev.py mock
+python3 mods/tools/dev.py mock
 ```
 
 网页使用 `http://127.0.0.1:8766`。这些入口使用合成截图和模拟工具，不会操作手机；自然语言接口明确报告尚未接入真实 Muse 会话。测试会自行创建并关闭临时 loopback 服务。日志写入 `local/logs/current/`，Python 缓存和临时构建分别写入 `local/cache/` 与 `local/build/`。
 
-其他 Python 使用方式：从 `bridge/host/` 运行模块，或设置 `PYTHONPATH=bridge/host`。客户端 API 示例见 [主机客户端](docs/host-client.md)。
+其他 Python 使用方式：从 `mods/host/` 运行模块，或设置 `PYTHONPATH=mods/host`。客户端 API 示例见 [主机客户端](docs/host-client.md)。
 
-TTS 接口配置检查在 ESP-IDF Python 环境运行：`python3 bridge/tools/validation/run-tts-kconfig.py`；worker 与目标构建验证见 [TTS 说明](docs/doubao-tts.md)。
+TTS 接口配置检查在 ESP-IDF Python 环境运行：`python3 mods/tools/validation/run-tts-kconfig.py`；worker 与目标构建验证见 [TTS 说明](docs/doubao-tts.md)。
 
 ## 上游与本工程的边界
 
 - **上游**：官方账户/配对、Noise 控制通道、板卡驱动和基础 Muse UI；固定版本见 [来源清单](upstream/sources.json)。完整源码与开发/测试密钥仅保存在 `local/upstream/`。
-- **本工程扩展**：[gadget-actell](bridge/extensions/gadget-actell/README.md)、[avatar](bridge/extensions/avatar/README.md)、[headless console](docs/headless-console.md) 及可选[豆包回复语音](docs/doubao-tts.md)。源码在 `bridge/extensions/` 维护，暂存 SDK 用于构建验证。TTS 默认使用校验证书的双向 WebSocket，可通过关闭 `CONFIG_DOUBAO_TTS_BIDIRECTIONAL` 编译切换至 HTTP 流式实现，复用现有 PCM 播放；云端及真机播放需单独验收。
-- **SDK 修改**：[patches](bridge/patches/README.md) 仅保存 Muse Gadget SDK 的接点和适配补丁。Headless 新文件在扩展目录与补丁中保持同步。
+- **本工程扩展**：[gadget-actell](mods/extensions/gadget-actell/README.md)、[avatar](mods/extensions/avatar/README.md)、[headless console](docs/headless-console.md) 及可选[豆包回复语音](docs/doubao-tts.md)。源码在 `mods/extensions/` 维护，暂存 SDK 用于构建验证。TTS 默认使用校验证书的双向 WebSocket，可通过关闭 `CONFIG_DOUBAO_TTS_BIDIRECTIONAL` 编译切换至 HTTP 流式实现，复用现有 PCM 播放；云端及真机播放需单独验收。
+- **SDK 修改**：[patches](mods/patches/README.md) 仅保存 Muse Gadget SDK 的接点和适配补丁。Headless 新文件在扩展目录与补丁中保持同步。
 - **Actell 应用**：独立工程维护连接、授权与手机执行实现；在 Actell 工程直接开发和验证。本工程不提供 Actell 安装补丁，历史 V1 补丁不再用于当前联调。
-- **主机原型**：`bridge/host/` 用于协议和 UI 回归；当前设备组件直接使用 Wi-Fi HTTPS，无需实现历史原型提出的 Muse VM Home Link transport。
+- **主机原型**：`mods/host/` 用于协议和 UI 回归；当前设备组件直接使用 Wi-Fi HTTPS，无需实现历史原型提出的 Muse VM Home Link transport。
 
-角色默认使用圆润脸型与静态着色的 160×160 离线 RAW-AA 角色，可独立关闭阴影/圆润脸，或编译回退原 64×64 版本；说话嘴型通过峰值观察、模式代次和独立包络跨过短暂音频间隙，并逐行平滑闭口，保留原 UI 音量平滑；[RAW-AA](docs/avatar-raw-aa.md) 使用独立只读共享资源，两块图像缓冲共 100 KiB 强制放入 PSRAM；素材缺失时回退程序式版本。程序式回退保留头部距离预筛，预筛开关前后的采样像素输出一致，见[性能说明](docs/avatar-listening-performance.md)；暂存保留 320 像素布局并兼容字幕字体/TTS。主机逐像素检查及目标构建不代表真机视觉或并发性能验收，见[角色说明](bridge/extensions/avatar/README.md)。
+角色默认使用圆润脸型与静态着色的 160×160 离线 RAW-AA 角色，可独立关闭阴影/圆润脸，或编译回退原 64×64 版本；说话嘴型通过峰值观察、模式代次和独立包络跨过短暂音频间隙，并逐行平滑闭口，保留原 UI 音量平滑；[RAW-AA](docs/avatar-raw-aa.md) 使用独立只读共享资源，两块图像缓冲共 100 KiB 强制放入 PSRAM；素材缺失时回退程序式版本。程序式回退保留头部距离预筛，预筛开关前后的采样像素输出一致，见[性能说明](docs/avatar-listening-performance.md)；暂存保留 320 像素布局并兼容字幕字体/TTS。主机逐像素检查及目标构建不代表真机视觉或并发性能验收，见[角色说明](mods/extensions/avatar/README.md)。
 
 开始构建前，在 `local/build/` 准备固定 SDK 的独立副本，按补丁说明应用并暂存扩展。不要混入 Actell 原有 USB-C/NCM 转发固件。目标编译、真实 Muse 账户、USB 配置、手机执行和模型图像输入均需分别验证，主机测试不能替代真机验收。
 
-秘密配置由用户指定路径，推荐放在工程目录外。`--secrets` 为必填参数，不设置默认工程内路径。用 `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --init` 创建 0600 占位文件，再由用户本机编辑；仅允许工具读取，代理不得直接查看、展示或将源文件复制进工程。通过 `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --sdkconfig local/build/sdk-copy/esp32/build-tts/sdkconfig` 导入，工具不回显值。文件仅填写 `CONFIG_GADGET_SDK_TOKEN` 和可选的 `CONFIG_DOUBAO_TTS_API_KEY`；API key 非空时自动启用 TTS，资源与音色在组件中固定。字段与构建步骤见 [TTS 配置说明](docs/doubao-tts.md)。 `--sdk-token-only` 仅用于独立字体构建，会移除 provider 配置；准备 TTS 或字体/TTS 组合固件时不使用该模式。
+秘密配置由用户指定路径，推荐放在工程目录外。`--secrets` 为必填参数，不设置默认工程内路径。用 `python3 mods/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --init` 创建 0600 占位文件，再由用户本机编辑；仅允许工具读取，代理不得直接查看、展示或将源文件复制进工程。通过 `python3 mods/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --sdkconfig local/build/sdk-copy/esp32/build-tts/sdkconfig` 导入，工具不回显值。文件仅填写 `CONFIG_GADGET_SDK_TOKEN` 和可选的 `CONFIG_DOUBAO_TTS_API_KEY`；API key 非空时自动启用 TTS，资源与音色在组件中固定。字段与构建步骤见 [TTS 配置说明](docs/doubao-tts.md)。 `--sdk-token-only` 仅用于独立字体构建，会移除 provider 配置；准备 TTS 或字体/TTS 组合固件时不使用该模式。
 
-可选 [Waveshare 2.16 按键扩展](bridge/extensions/waveshare-216-controls/README.md) 将左 BOOT、中 PWR、右 KEY3 分别用于扬声器、休眠/唤醒与硬件长按关机、Talk；保留触屏设置。获授权的正式构建可在字体/TTS runner 追加 `--with-controls`，并使用扩展提供的非活动 app 槽更新工具。该扩展在字体等既有扩展之后最后应用，显示版 overlay 启用原生 24px 电源图标。`dev.py test` 中的按键回归需要 `local/upstream/archives/` 下已核验的固定 SDK 归档。基础按键行为和图标位置已获实机确认；长按时序、唤醒功耗、实际音频及完整显示验收仍待完成。
+可选 [Waveshare 2.16 按键扩展](mods/extensions/waveshare-216-controls/README.md) 将左 BOOT、中 PWR、右 KEY3 分别用于扬声器、休眠/唤醒与硬件长按关机、Talk；保留触屏设置。获授权的正式构建可在字体/TTS runner 追加 `--with-controls`，并使用扩展提供的非活动 app 槽更新工具。该扩展在字体等既有扩展之后最后应用，显示版 overlay 启用原生 24px 电源图标。`dev.py test` 中的按键回归需要 `local/upstream/archives/` 下已核验的固定 SDK 归档。基础按键行为和图标位置已获实机确认；长按时序、唤醒功耗、实际音频及完整显示验收仍待完成。
 
 ## 协议与资料
 
@@ -56,17 +56,17 @@ TTS 接口配置检查在 ESP-IDF Python 环境运行：`python3 bridge/tools/va
 - [Muse Gadget SDK 扩展功能索引](docs/muse-sdk-extensions.md)：按类别简述新增能力，引用详细说明。
 - [Gadget V2](docs/protocol/gadget-v2.md) / [主机 V1](docs/protocol/v1.md)
 - [可选角色动作](docs/optional-avatar-events.md)
-- [Muse skill](bridge/extensions/skills/gadget-actell-remote/SKILL.md)
+- [Muse skill](mods/extensions/skills/gadget-actell-remote/SKILL.md)
 - [来源与许可](THIRD_PARTY.md)
 
 Actell 工具注册自带手机操作流程、参数与调用示例，无需额外注入 skill 上下文。手机请求由单个 worker 顺序执行，最多等待二十条，保留有界截止时间。
-使用 `actell.screenshot` 一次调用查看手机；一级输入工具采用归一化坐标，不要求先截图，`actell.call_status` 查询原调用。首版永久调用记录按 NVS 可用空间确定，最多 512 次，不自动清理；详见[接入状态](docs/actell-flat-tools-integration-status.md)。
+使用 `actell.screenshot` 一次调用查看手机；一级输入工具采用归一化坐标，不要求先截图，`actell.call_status` 查询原调用。近期操作身份仅保存在 64 条内存缓存中并循环回收（启用外部 BSS 时放入 PSRAM），重启即清空，不向 NVS 写入操作历史；详见[接入状态](docs/actell-flat-tools-integration-status.md)。
 截图传输支持连续调用间有界复用 HTTP/TLS、不会使活跃连接过期的短期网络地址缓存，以及协商后的有界结果与释放等待。关联计时覆盖到 SDK 图片上传；平台、LLM 耗时和真机提速需独立测量。见[性能协议与分析工具](docs/protocol/ACTELL-PERF-1.md)。
 
 常规桥接配置启用截屏 JPEG 回传和查看／操作手机头像动作。动画覆盖 worker 处理请求至连接和图片交付的过程，表示处理中而非执行成功，不增加调用或等待；动画可见性和模型实际看到图片仍须实机验证。
 手机工具完成结果采用有界的 256 KiB JSON 接收，超限与网络故障分别报告。
-连接复用独立采用十分钟业务空闲上限；认证状态中的完成提示只回收无人使用的 TLS／媒体资源，不取消运行或管理聊天订阅。三十秒地址缓存独立保留。见[传输生命周期](docs/protocol/ACTELL-PERF-1.md)。
-Actell 设置提供持久保存的自动连接开关，默认开启，每 30 秒尝试恢复已保存的配对连接，不重放操作。校时成功会立即唤醒尚未连接的保存配对，仍遵守自动连接关闭及重试暂停状态。
+连接复用独立采用十分钟业务空闲上限；认证状态中的完成提示只回收无人使用的 TLS／媒体资源，不取消运行或管理聊天订阅。内部内存紧张时也会在响应完成后回收本地空闲 TLS，保留活跃请求。三十秒地址缓存独立保留。见[传输生命周期](docs/protocol/ACTELL-PERF-1.md)。
+配对记录采用按字段实际长度保存的精简格式；旧格式不读取或迁移，需要重新批准配对。Actell 设置提供持久保存的自动连接开关，默认开启，每 30 秒尝试恢复已保存的配对连接，不重放操作。校时成功会立即唤醒尚未连接的保存配对，仍遵守自动连接关闭及重试暂停状态。
 已完成的重复调用会立即返回安全对账错误；只读查询可回收工作槽，写调用保留独立有界去重保护，避免回收后重放。
 重连失败和取消均保留已保存的配对，只有明确选择 Forget pairing 才会删除。
 Pair with Actell 会自动向唯一开放的配对窗口发送申请，由 iPhone 选择并允许 Muse；ESP32 不再显示服务名列表让用户选手机，多窗口时提示只保留目标窗口。
@@ -82,12 +82,12 @@ Pair with Actell 会自动向唯一开放的配对窗口发送申请，由 iPhon
 ## Git 分享前
 
 ```sh
-python3 bridge/tools/check-share.py
+python3 mods/tools/check-share.py
 git status --short
 ```
 
 检查器扫描已跟踪及未忽略文件，只报告路径和问题类型，不打印凭据；它不替代人工审查。对外归档从已审查的 Git 提交生成，输出到 `local/`，不要压缩整个工作目录。
 
-需要比对实际凭据时，运行 `python3 bridge/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --audit-share`。工具检查 Git 可见文件及暂存内容，仅报告脱敏后的匹配位置，不回显值或匹配行。
+需要比对实际凭据时，运行 `python3 mods/tools/apply-secrets.py --secrets /path/outside/project/device-secrets.conf --audit-share`。工具检查 Git 可见文件及暂存内容，仅报告脱敏后的匹配位置，不回显值或匹配行。
 
 鉴权拒绝时保留已有配对和 Wi-Fi，不再仅为启动上报而刷新已有设备凭据。

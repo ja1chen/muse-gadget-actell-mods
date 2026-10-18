@@ -1,14 +1,14 @@
-# 工程约定
+# muse-gadget-actell-mods 工程约定
 
 ## 目录与所有权
 
-- `bridge/`：本项目工程链路的总目录。新增客户端、扩展、补丁、测试和开发工具优先归入其对应子目录，不在仓库根目录新增平级实现目录。
-- `bridge/host/`：本工程 Python 客户端、loopback mock、网页及其测试。运行入口为 `python3 bridge/tools/dev.py`。
-- `bridge/extensions/`：本工程维护的扩展源码与通用配置；具体能力、接入方式和本机产物边界见对应扩展文档。
-- `bridge/patches/muse-gadget-sdk/`：仅保存对固定 Muse Gadget SDK 的差异。本工程的“通过补丁修改上游”只适用于 Muse Gadget SDK。
+- `mods/`：本项目工程链路的总目录。新增客户端、扩展、补丁、测试和开发工具优先归入其对应子目录，不在仓库根目录新增平级实现目录。
+- `mods/host/`：本工程 Python 客户端、loopback mock、网页及其测试。运行入口为 `python3 mods/tools/dev.py`。
+- `mods/extensions/`：本工程维护的扩展源码与通用配置；具体能力、接入方式和本机产物边界见对应扩展文档。
+- `mods/patches/muse-gadget-sdk/`：仅保存对固定 Muse Gadget SDK 的差异。本工程的“通过补丁修改上游”只适用于 Muse Gadget SDK。
 - `upstream/`：只保存 Muse Gadget SDK 的来源 URL、固定 commit、归档 SHA-256 与接入说明。SDK 完整源码、Git 历史、开发签名密钥和下载包均放在 `local/upstream/`。
-- `docs/`：可公开的架构、协议和使用说明；`bridge/extensions/skills/`：本工程交付的 Muse 使用说明，作为扩展一起维护。
-- `bridge/tools/`：可复用开发、检查和验证程序。测试代码应纳入 Git；测试产生的报告、日志和二进制不得混入源码。
+- `docs/`：可公开的架构、协议和使用说明；`mods/extensions/skills/`：本工程交付的 Muse 使用说明，作为扩展一起维护。
+- `mods/tools/`：可复用开发、检查和验证程序。测试代码应纳入 Git；测试产生的报告、日志和二进制不得混入源码。
 - `local/`：工程内唯一的本机数据目录，整体被 Git 忽略。用户指定的秘密配置源文件可以放在工程外；不得复制进工程。不得使用 `git add -f` 绕过。
 - 根目录保留 `README.md`、`README.zh-CN.md`、`AGENTS.md`、`LICENSE`、`THIRD_PARTY.md` 和 Git 配置文件；第三方来源与许可归属集中记录在 `THIRD_PARTY.md`。
 - `README.md` 为英文说明，`README.zh-CN.md` 为简体中文说明；两者顶部相互链接。修改目录、开发命令、能力边界或分享规则时同步两种语言。
@@ -34,7 +34,7 @@
 ### 秘密配置的工具边界
 
 - 秘密配置使用 `sdkconfig` 风格 KV，由用户放在其指定路径，推荐放在工程目录外；通过 `--secrets` 显式传入，无默认工程内路径。格式见 [TTS 配置说明](docs/doubao-tts.md)。代理不得直接读取、搜索、展示、输出或复制该文件。
-- 只有 `bridge/tools/apply-secrets.py` 可以读取秘密配置，写入指定的 `local/build/` 内 `sdkconfig` 或执行 `--audit-share` 凭据泄漏比对；通过 `--secrets` 传文件路径，不在命令行传凭据。工具只报告状态、字段名称或脱敏后的匹配位置，不回显值。
+- 只有 `mods/tools/apply-secrets.py` 可以读取秘密配置，写入指定的 `local/build/` 内 `sdkconfig` 或执行 `--audit-share` 凭据泄漏比对；通过 `--secrets` 传文件路径，不在命令行传凭据。工具只报告状态、字段名称或脱敏后的匹配位置，不回显值。
 - 秘密文件只接受 `CONFIG_GADGET_SDK_TOKEN` 和可选的 `CONFIG_DOUBAO_TTS_API_KEY`；TTS 根据 API key 是否非空自动启停，合成资源与音色固定在组件实现中。
 - 代理同样不得直接读取、搜索或输出含真实凭据的生成配置、`sdkconfig.old`、生成头文件、固件或可能回显凭据的日志。必要的构建/刷机工具可在用户授权范围内使用这些文件，不向代理回显内容。真实配置构建的输出保持本机私密；排错使用脱敏工具或独立合成配置。
 - 字体独立构建保留 `--sdk-token-only`，仅导入 SDK token 并移除已有 provider 开关和凭据；合并后的 TTS 构建使用普通导入模式，不能用 SDK-only 模式验证播报。
@@ -43,9 +43,9 @@
 ## 上游与扩展修改
 
 - 以 `upstream/sources.json` 固定 Muse Gadget SDK 基线；先核验归档哈希/commit，再准备 `local/build/` 副本。不要直接开发或覆盖干净 SDK 检出。
-- 扩展源码的权威位置是 `bridge/extensions/`，SDK 差异的权威位置是 `bridge/patches/muse-gadget-sdk/`。暂存 SDK 中的改动必须回写对应扩展/补丁，不能只留在忽略目录。
-- Avatar v13 的 SDK 差异由 `bridge/extensions/avatar/tools/stage.py` 安装，并与 `bridge/patches/muse-gadget-sdk/avatar.patch` 保持逐字节等效；不要在暂存后重复应用该补丁。保留暂存日志以供受保护回滚，后续字体/UI 改动存在时重建 SDK 副本，不强制覆盖回滚。
-- Headless 补丁包含新增文件的副本；修改 `bridge/extensions/headless-console/` 时同步 `bridge/patches/muse-gadget-sdk/headless.patch`，验证应用后文件逐字节一致。
+- 扩展源码的权威位置是 `mods/extensions/`，SDK 差异的权威位置是 `mods/patches/muse-gadget-sdk/`。暂存 SDK 中的改动必须回写对应扩展/补丁，不能只留在忽略目录。
+- Avatar v13 的 SDK 差异由 `mods/extensions/avatar/tools/stage.py` 安装，并与 `mods/patches/muse-gadget-sdk/avatar.patch` 保持逐字节等效；不要在暂存后重复应用该补丁。保留暂存日志以供受保护回滚，后续字体/UI 改动存在时重建 SDK 副本，不强制覆盖回滚。
+- Headless 补丁包含新增文件的副本；修改 `mods/extensions/headless-console/` 时同步 `mods/patches/muse-gadget-sdk/headless.patch`，验证应用后文件逐字节一致。
 - 补丁使用上游仓库相对路径，按补丁说明中的依赖关系和应用顺序接入。用干净固定基线验证 `git apply --check`，避免重复应用。
 - Actell 是独立协作应用，其实现和修改直接在 Actell 工程维护。本工程不生成、分发或重新应用 Actell 补丁；其他仓库也不套用 Muse SDK 的补丁流程。联调时核对对端实际源码、分支和未提交状态，不以历史补丁推断已提交或可运行。
 - 不复制整个 SDK 到可分享目录，不把 SDK 文件伪装成本工程原创。保留来源和许可证；本工程独立代码遵守根目录 LICENSE，外部应用保留各自许可。
@@ -70,17 +70,17 @@
 
 ## 开发与验证
 
-- `python3 bridge/tools/dev.py test`：运行 Python/原生 C/Node 主机回归及 headless 观察器检查；日志写入 `local/logs/current/`。
-- `python3 bridge/tools/dev.py avatar`：使用固定 SDK 归档的头文件和当前扩展源码，在临时目录重新暂存并运行 C sanitizer harness；报告写入 `local/validation/current/`。
-- `python3 bridge/tools/dev.py console` / `mock`：只启动本机 loopback 模拟服务。
-- 使用开发入口设置的 Python 缓存和临时目录；新增工具默认向 `local/` 输出。Avatar 新生成的预览和验证报告写入 `local/validation/avatar-preview/`，既有 `bridge/extensions/avatar/preview/` 保留本机且整体忽略，不纳入 Git 分享。
+- `python3 mods/tools/dev.py test`：运行 Python/原生 C/Node 主机回归及 headless 观察器检查；日志写入 `local/logs/current/`。
+- `python3 mods/tools/dev.py avatar`：使用固定 SDK 归档的头文件和当前扩展源码，在临时目录重新暂存并运行 C sanitizer harness；报告写入 `local/validation/current/`。
+- `python3 mods/tools/dev.py console` / `mock`：只启动本机 loopback 模拟服务。
+- 使用开发入口设置的 Python 缓存和临时目录；新增工具默认向 `local/` 输出。Avatar 新生成的预览和验证报告写入 `local/validation/avatar-preview/`，既有 `mods/extensions/avatar/preview/` 保留本机且整体忽略，不纳入 Git 分享。
 - 目录重构应运行受影响的测试、静态资源检查和补丁暂存检查。结果区分源码检查、主机测试、目标编译、真实服务和真机验收；旧记录不能当作当前测试通过。
 - 保持 TLS 校验、HMAC、审批、截止时间、去重和禁止自动重放语义。普通测试不调用真实账号、设备或公网 API。
 - 字体与通用资源的生成数据、oracle、资源包和固件保留在 `local/`；扩展维护来源与授权、字集、只读读取器、布局和生成/验证工具。资源缺失或不兼容时回退原字体，不自动写 Flash、格式化、清空 NVS 或重置配对。资源分区 CSV 必须保留所有原有条目，设备迁移独立授权。
 
 ## Git 与分享
 
-- 提交/打包前运行 `python3 bridge/tools/check-share.py`，检查 `git status --short` 和待提交差异，确认 `local/` 及秘密文件均被忽略。
+- 提交/打包前运行 `python3 mods/tools/check-share.py`，检查 `git status --short` 和待提交差异，确认 `local/` 及秘密文件均被忽略。
 - 只选择与任务相关的文件暂存；初始化 Git 不等于授权提交、推送或发布。
 - 对外打包从已审查的 Git 提交生成 `git archive`，输出到 `local/`；不要递归压缩整个工作目录。
 - 用户数据的删除、实际刷机、账号配对和外部发布按用户明确授权执行。常规本机整理与验证可直接完成，不额外增加确认步骤。

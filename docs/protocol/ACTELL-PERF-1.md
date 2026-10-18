@@ -40,6 +40,14 @@ can fall back once to discovery and a new authenticated connection within the re
 budget. Failure after a write attempt, even a write returning an error, never causes
 resubmission. Existing read-only original-status recovery remains unchanged.
 
+Before retaining a completed connection, the worker requires at least 24 KiB of
+free DMA-capable internal memory and a 2 KiB contiguous block. It closes the
+optional idle connection below either threshold; idle maintenance applies the
+same check. This leaves 8 KiB above the SDK's unchanged 16 KiB send reserve.
+The check never interrupts a borrowed/in-flight request, sends no extra RPC,
+and preserves the thirty-second locator cache. Low-memory workloads may need
+another authenticated TLS connection on the next invocation.
+
 ## Optional idle-release hint
 
 Resource retention is independent of the platform chat subscription. Neither opening,
@@ -157,7 +165,7 @@ adapter; these events are not inferred from upload completion.
 Summarize Muse UART logs and Actell's filtered diagnostic report:
 
 ```sh
-python3 bridge/tools/analyze-actell-latency.py \
+python3 mods/tools/analyze-actell-latency.py \
   local/logs/performance/muse.log \
   --actell-report local/validation/performance/actell-diagnostics.json \
   --output local/validation/performance/timing-report.json

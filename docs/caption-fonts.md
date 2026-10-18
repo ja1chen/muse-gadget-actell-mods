@@ -14,7 +14,7 @@
 
 ## 可复现候选
 
-源码位于 [muse-fonts 扩展](../bridge/extensions/muse-fonts/README.md)。原始字体、完整授权和转换器固定版本及哈希见 [manifest](../bridge/extensions/muse-fonts/manifest.json)。派生字库名称为 **Actell Device Sans**；原字体是 Adobe Source Han Sans SC 2.005R。
+源码位于 [muse-fonts 扩展](../mods/extensions/muse-fonts/README.md)。原始字体、完整授权和转换器固定版本及哈希见 [manifest](../mods/extensions/muse-fonts/manifest.json)。派生字库名称为 **Actell Device Sans**；原字体是 Adobe Source Han Sans SC 2.005R。
 
 每个候选实际保留 29,137 个字形，指定范围内另有 1,134 个 cmap 缺字，完整列表写入本机候选 JSON。包括基本汉字和扩展 A，未按演示语料或词频裁剪；不承诺所有汉字、emoji 或组合字符。生成时启用压缩，显式关闭 kerning，保留比例 advance；后续布局必须采用相同度量规则。
 

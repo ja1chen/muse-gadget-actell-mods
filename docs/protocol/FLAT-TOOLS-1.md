@@ -58,9 +58,9 @@ Responses retain the existing JPEG identity/hash headers and additionally report
 
 ## Remaining platform/storage boundaries
 
-Gadget must bind each platform invoke to durable original run/call IDs before sending actions. A repeated invoke must query the original call, never create a replacement. Neither a transport timeout nor not_found establishes nonexecution. The platform has not confirmed a model/executor recovery route when the entire first receipt is lost.
+Gadget binds each platform invoke to original run/call IDs in a bounded RAM cache before sending actions. Retained repeated invokes query the original call; the active control generation also fences completed write IDs. Gadget records are recycled and lost on reboot, so recovery across reboot or across generations after eviction is not promised. Clients must not resend uncertain actions as new requests. Neither a transport timeout nor not_found establishes nonexecution. The platform has not confirmed a model/executor recovery route when the entire first receipt is lost.
 
-Actell retains accepted run/call identities in its existing durable journal with 10,000-entry bounds. This change does not silently prune those identities or claim unbounded operation. A capacity/archival scheme that preserves rejection of retired identities remains required for long-term use. Gadget persistence and registration rollout must be reviewed against its actual storage budget before declaring end-to-end completion.
+Actell retains accepted run/call identities in its existing durable journal with 10,000-entry bounds. This change does not silently prune those identities or claim unbounded operation. A capacity/archival scheme that preserves rejection of retired identities remains required for long-term use. Gadget local retention is independent of this phone-side journal; its 64-entry RAM cache is described in gadget-v2.md.
 
 ## Validation
 

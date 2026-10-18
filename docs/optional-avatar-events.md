@@ -4,10 +4,10 @@ This is an optional local presentation layer. The original replacement character
 
 ## Files and boundaries
 
-- `bridge/host/muse_client/presentation.py`: explicit tool classification, default-off client facade, bounded local activity tracker, asynchronous latest-only callback worker, and native C event sink.
-- `bridge/extensions/avatar/`: separate original C character renderer/activity API, its previews and installation instructions.
-- `bridge/host/web_console/presentation.js` and the independent `/api/presentation` endpoints: optional, session-local mock controls. No real device route is activated.
-- Tests: `bridge/host/tests/test_presentation.py`, `bridge/host/tests/test_presentation_native.py`, `bridge/host/tests/test_presentation_ui.py` (dependency-free Node DOM/request-order regression), and the optional-presentation cases in `bridge/host/tests/test_web_console.py`.
+- `mods/host/muse_client/presentation.py`: explicit tool classification, default-off client facade, bounded local activity tracker, asynchronous latest-only callback worker, and native C event sink.
+- `mods/extensions/avatar/`: separate original C character renderer/activity API, its previews and installation instructions.
+- `mods/host/web_console/presentation.js` and the independent `/api/presentation` endpoints: optional, session-local mock controls. No real device route is activated.
+- Tests: `mods/host/tests/test_presentation.py`, `mods/host/tests/test_presentation_native.py`, `mods/host/tests/test_presentation_ui.py` (dependency-free Node DOM/request-order regression), and the optional-presentation cases in `mods/host/tests/test_web_console.py`.
 
 The existing `Client`, HMAC signing, v1 request body, approvals, idempotency IDs, routing, result/exception objects and retry policy are unchanged. The facade forwards each RPC exactly once. No animation is awaited before, during or after a tool. Callback errors are isolated, and a hung callback cannot block the RPC caller. This layer cannot approve a tool, submit a new tool, retry it, or invoke an LLM.
 
@@ -54,7 +54,7 @@ The C module also supports longer TTLs for other callers; this adapter intention
 ## Use with the local mock console
 
 ```sh
-python3 bridge/tools/dev.py console --port 8766
+python3 mods/tools/dev.py console --port 8766
 ```
 
 Open exactly `http://127.0.0.1:8766`. The optional phone-activity checkbox starts unchecked. Enabling it shows low-sensitivity local event labels as mock list-apps/screenshot tools finish. This is a status display, not evidence of a physical avatar connection. The console remains loopback-only. `/api/presentation` uses the existing same-origin, session and CSRF protections, separate from `/api/rpc`; toggling one browser session does not change another. Presentation polling/toggles have a separate request budget, so they cannot consume the main tool RPC rate allowance. UI sequence and revision guards discard stale responses; a failed toggle is labelled unconfirmed and reconciled with a read instead of falsely claiming that the switch changed.
@@ -116,6 +116,6 @@ Local Python/mock/ABI tests alone do not prove physical phone or display behavio
 
 1. Uncheck the console option or call `layer.set_enabled(False)` and `layer.close()`. This does not cancel or replay tools.
 2. Use `existing_client` directly instead of `PresentedClient`. No protocol or credential changes are necessary.
-3. To remove optional console UI, remove its section and `/presentation.js` script tag from `bridge/host/web_console/index.html`; the two `actell-*` custom-event notifications in `app.js` are isolated and can also be removed. The main console does not depend on a listener.
+3. To remove optional console UI, remove its section and `/presentation.js` script tag from `mods/host/web_console/index.html`; the two `actell-*` custom-event notifications in `app.js` are isolated and can also be removed. The main console does not depend on a listener.
 4. `web_console.py` tolerates the optional `presentation` import being unavailable; the separate presentation endpoint reports unavailable and ordinary tool RPC remains usable.
-5. Undo C renderer integration separately following `bridge/extensions/avatar` instructions. Never reset device pairing or modify the tool executor just to remove presentation.
+5. Undo C renderer integration separately following `mods/extensions/avatar` instructions. Never reset device pairing or modify the tool executor just to remove presentation.

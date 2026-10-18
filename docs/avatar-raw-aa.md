@@ -4,16 +4,16 @@
 
 ## 来源与复现
 
-来源为 `raw-aa-handoff`，沿用 Apache-2.0。权威代码位于 `bridge/extensions/avatar/src/`。`muse_pixel_geometry.c` 保留原稳定嘴型几何，供离线生成和程序式回退比较；`muse_pixel_aa_fallback.inc` 是复用图像缓冲的程序式实现。`muse_pixel_aa_assets.h` 只有格式视图与偏移，不包含大型像素数组。完整资源和生成中间数据均留在忽略的 `local/`。
+来源为 `raw-aa-handoff`，沿用 Apache-2.0。权威代码位于 `mods/extensions/avatar/src/`。`muse_pixel_geometry.c` 保留原稳定嘴型几何，供离线生成和程序式回退比较；`muse_pixel_aa_fallback.inc` 是复用图像缓冲的程序式实现。`muse_pixel_aa_assets.h` 只有格式视图与偏移，不包含大型像素数组。完整资源和生成中间数据均留在忽略的 `local/`。
 
 raw 文件为 2,269,340 字节，SHA-256 为 `822ccdc0eff4dc3648ff6cb540796a7f811912c1c8284cd89d6647d234780794`，含 6,836 条记录。设备不执行超采样或解压；格式包含 64 字节 `ACTAA001` 头、RGB565/coverage 数据及索引。CRC 用于兼容性和损坏检测，不代替签名或可信部署流程。头部颜色已对黑底预混，改背景、形状、颜色或尺寸必须重新生成。
 
 使用已按当前扩展暂存的固定 SDK 头文件，在安装 NumPy 的 Python 环境执行：
 
 ```sh
-python3 bridge/extensions/avatar/tools/raw-aa-generate_assets.py \
+python3 mods/extensions/avatar/tools/raw-aa-generate_assets.py \
   --include local/build/sdk-copy/esp32/components/muse
-python3 bridge/extensions/avatar/tools/raw-aa-externalize.py
+python3 mods/extensions/avatar/tools/raw-aa-externalize.py
 ```
 
 产物位于 `local/build/avatar-raw-aa/generator/`；将最终 raw 与来源清单中的哈希比较后，才可用于部署。生成器不会覆盖权威源码。`check-raw-aa.py --include ... --raw ...` 检查实际 C 的绑定、损坏拒绝、解绑重绑、AA 缺失计数、程序式回退像素及绑定态 ASan/UBSan。常规 `dev.py avatar` 在本机已有 `local/build/avatar-raw-aa/assets/avatar-aa.raw` 时附加这些检查；缺少 raw 时明确跳过绑定检查。

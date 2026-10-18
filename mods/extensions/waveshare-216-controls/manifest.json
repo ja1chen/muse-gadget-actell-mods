@@ -1,0 +1,9 @@
+{
+  "sdk_commit": "812c46f9fe42b69d916613a9dc702cbac5ff7b54",
+  "archive": "local/upstream/archives/muse-gadget-sdk-812c46f.tar.gz",
+  "archive_sha256": "0a7548404b4aa25ad0cc3ad0f9fee1ad3a3245a03a14b02293da3a83bde69359",
+  "patch": "mods/patches/muse-gadget-sdk/waveshare-216-controls.patch",
+  "header_target": "esp32/components/muse/boards/waveshare_216_controls.h",
+  "hardware_verified": false,
+  "pmu_reference": "https://files.waveshare.com/wiki/common/X-power-AXP2101_SWcharge_V1.0.pdf"
+}

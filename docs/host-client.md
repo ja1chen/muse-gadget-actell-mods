@@ -1,8 +1,8 @@
 # 主机客户端
 
-`bridge/host/muse_client/` 是 Python 3.10+ 标准库客户端。使用 exact-body HMAC、带证书校验的 HTTPS、有限大小的 PNG/JPEG 获取和明确启用的 loopback mock。它不提供 Muse VM Home Link 接入或模型图像注入。
+`mods/host/muse_client/` 是 Python 3.10+ 标准库客户端。使用 exact-body HMAC、带证书校验的 HTTPS、有限大小的 PNG/JPEG 获取和明确启用的 loopback mock。它不提供 Muse VM Home Link 接入或模型图像注入。
 
-在根目录设置 `PYTHONPATH=bridge/host`，或从 `bridge/host/` 目录导入模块。先运行 `python3 bridge/tools/dev.py mock`，然后可以在只针对本机 mock 的脚本中使用：
+在根目录设置 `PYTHONPATH=mods/host`，或从 `mods/host/` 目录导入模块。先运行 `python3 mods/tools/dev.py mock`，然后可以在只针对本机 mock 的脚本中使用：
 
 ```python
 import time

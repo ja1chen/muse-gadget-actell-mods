@@ -6,11 +6,11 @@
     "bundled": false,
     "archive_path": "local/upstream/archives/muse-gadget-sdk-812c46f.tar.gz",
     "archive_sha256": "0a7548404b4aa25ad0cc3ad0f9fee1ad3a3245a03a14b02293da3a83bde69359",
-    "patch_directory": "bridge/patches/muse-gadget-sdk",
-    "optional_caption_patch": "bridge/patches/muse-gadget-sdk/caption-font.patch",
+    "patch_directory": "mods/patches/muse-gadget-sdk",
+    "optional_caption_patch": "mods/patches/muse-gadget-sdk/caption-font.patch",
     "bundled_meaning": "Full upstream source is excluded from this Git repository; a local ignored archive may be present.",
-    "optional_controls_patch": "bridge/patches/muse-gadget-sdk/waveshare-216-controls.patch",
-    "optional_avatar_patch": "bridge/patches/muse-gadget-sdk/avatar.patch"
+    "optional_controls_patch": "mods/patches/muse-gadget-sdk/waveshare-216-controls.patch",
+    "optional_avatar_patch": "mods/patches/muse-gadget-sdk/avatar.patch"
   },
   "target_board": "Waveshare ESP32-S3-Touch-AMOLED-2.16",
   "real_hardware_verified": false,

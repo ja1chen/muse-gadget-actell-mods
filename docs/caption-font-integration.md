@@ -17,11 +17,11 @@
 
 ## 暂存与公开配置构建
 
-先按 [补丁说明](../bridge/patches/README.md) 准备固定 SDK 的本机副本及已有扩展，再运行：
+先按 [补丁说明](../mods/patches/README.md) 准备固定 SDK 的本机副本及已有扩展，再运行：
 
 ```sh
-python3 bridge/extensions/muse-fonts/tools/stage.py local/build/sdk-copy --check
-python3 bridge/extensions/muse-fonts/tools/stage.py local/build/sdk-copy
+python3 mods/extensions/muse-fonts/tools/stage.py local/build/sdk-copy --check
+python3 mods/extensions/muse-fonts/tools/stage.py local/build/sdk-copy
 ```
 
 stage 拒绝覆盖和重复应用，验证固定归档哈希与 UI 基线，仅复制 `src/`、`include/`、授权、CMake/Kconfig/依赖声明和资源分区 CSV；不复制下载字体或生成数据进 app 组件。可选开关为 `CONFIG_ACTELL_CAPTION_FONT=y`；默认关闭，仅允许 Waveshare 2.16 有屏 profile。
@@ -29,7 +29,7 @@ stage 拒绝覆盖和重复应用，验证固定归档哈希与 UI 基线，仅�
 已激活 ESP-IDF 6.0.1、并准备好已解析依赖时，可使用独立公开配置 runner：
 
 ```sh
-python3 bridge/extensions/muse-fonts/tools/build.py \
+python3 mods/extensions/muse-fonts/tools/build.py \
   --sdk local/build/sdk-copy --components-dir "$RESOLVED_COMPONENTS" --mode on
 # 相同参数分别使用 --mode off 与 --mode headless
 ```
@@ -39,19 +39,19 @@ runner 从公共 defaults 与空账号/配网配置构建，所有配置与输�
 字体分支独立测试时，可通过同一 runner 的 SDK-only 模式准备含 SDK token 的本机固件：
 
 ```sh
-python3 bridge/extensions/muse-fonts/tools/build.py \
+python3 mods/extensions/muse-fonts/tools/build.py \
   --sdk local/build/sdk-copy --components-dir "$RESOLVED_COMPONENTS" --mode on \
   --secrets "$MUSE_SECRETS_FILE"
 ```
 
-此模式调用已审查的 `bridge/tools/apply-secrets.py --sdk-token-only`，源文件只能由导入器读取，不复制源文件或回显值；即使输入同时含其他 provider 字段，也不把它们写入字体配置。输出单独放在 `local/build/caption-firmware/private-on/`，不覆盖公开构建；权限按 0600/0700 创建，日志不回显，失败时回到合成配置排错。代理不得查看或搜索该真实构建的配置、生成头、固件或日志内容。构建工具只报告状态和字节数，不触发账号连接、配对或刷机。
+此模式调用已审查的 `mods/tools/apply-secrets.py --sdk-token-only`，源文件只能由导入器读取，不复制源文件或回显值；即使输入同时含其他 provider 字段，也不把它们写入字体配置。输出单独放在 `local/build/caption-firmware/private-on/`，不覆盖公开构建；权限按 0600/0700 创建，日志不回显，失败时回到合成配置排错。代理不得查看或搜索该真实构建的配置、生成头、固件或日志内容。构建工具只报告状态和字节数，不触发账号连接、配对或刷机。
 
-不带 `--with-tts` 的 SDK-only runner 继续用于隔离的字体测试，不导入 provider key 或启用 TTS；它不能用于验证合并后的语音功能。字体与 TTS 可共同暂存，顺序见[补丁说明](../bridge/patches/README.md)，组合配置使用 [TTS 导入与构建步骤](doubao-tts.md)。真实 SDK token 只用于后续已授权的设备验收，不用于普通回归测试；五项 SDK-only 导入测试均使用合成配置，覆盖 provider 排除、开关保留、权限、拒绝与不回显。
+不带 `--with-tts` 的 SDK-only runner 继续用于隔离的字体测试，不导入 provider key 或启用 TTS；它不能用于验证合并后的语音功能。字体与 TTS 可共同暂存，顺序见[补丁说明](../mods/patches/README.md)，组合配置使用 [TTS 导入与构建步骤](doubao-tts.md)。真实 SDK token 只用于后续已授权的设备验收，不用于普通回归测试；五项 SDK-only 导入测试均使用合成配置，覆盖 provider 排除、开关保留、权限、拒绝与不回显。
 
 字体与 TTS 均已暂存时，可用同一 runner 构建组合固件：
 
 ```sh
-python3 bridge/extensions/muse-fonts/tools/build.py \
+python3 mods/extensions/muse-fonts/tools/build.py \
   --sdk local/build/sdk-copy --components-dir "$RESOLVED_COMPONENTS" --mode on \
   --with-tts --secrets "$TTS_SECRETS_FILE"
 ```
@@ -87,13 +87,13 @@ python3 bridge/extensions/muse-fonts/tools/build.py \
 复现深入主机验证：
 
 ```sh
-node bridge/extensions/muse-fonts/tools/generate.js
-python3 bridge/extensions/muse-fonts/tools/run-font-host.py
-python3 bridge/extensions/muse-fonts/tools/run-resource-port.py --components-dir "$RESOLVED_COMPONENTS"
-python3 bridge/extensions/muse-fonts/tools/check-stage.py
+node mods/extensions/muse-fonts/tools/generate.js
+python3 mods/extensions/muse-fonts/tools/run-font-host.py
+python3 mods/extensions/muse-fonts/tools/run-resource-port.py --components-dir "$RESOLVED_COMPONENTS"
+python3 mods/extensions/muse-fonts/tools/check-stage.py
 # 验证字体与 TTS 同时暂存的补丁顺序及源码一致性：
-python3 bridge/extensions/muse-fonts/tools/check-stage.py --with-tts
-python3 bridge/tools/dev.py test
+python3 mods/extensions/muse-fonts/tools/check-stage.py --with-tts
+python3 mods/tools/dev.py test
 ```
 
 `run-resource-port.py` 的 SHA 替身当前使用 macOS CommonCrypto；其他平台仍可运行独立 C 核心和包测试。生成 oracle、测试日志、故障向量和二进制全部保留在 `local/`。

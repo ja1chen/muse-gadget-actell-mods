@@ -70,8 +70,8 @@ sdkconfig.old
 /local-validation/
 /delivery-v4/
 /VALIDATION.json
-/bridge/extensions/*/validation/
-/bridge/extensions/avatar/preview/
+/mods/extensions/*/validation/
+/mods/extensions/avatar/preview/
 
 # Editor / OS metadata.
 .DS_Store

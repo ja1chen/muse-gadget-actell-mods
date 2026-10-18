@@ -31,16 +31,16 @@
 
 ## 复现与验证
 
-从仓库根运行（字体输入与依赖准备见 [扩展说明](../bridge/extensions/muse-fonts/README.md)）：
+从仓库根运行（字体输入与依赖准备见 [扩展说明](../mods/extensions/muse-fonts/README.md)）：
 
 ```sh
-node bridge/extensions/muse-fonts/tools/generate.js
-python3 bridge/extensions/muse-fonts/tools/pack.py build \
+node mods/extensions/muse-fonts/tools/generate.js
+python3 mods/extensions/muse-fonts/tools/pack.py build \
   --font actell_device_sans_regular_16_4
-python3 bridge/extensions/muse-fonts/tools/pack.py verify \
+python3 mods/extensions/muse-fonts/tools/pack.py verify \
   local/build/read-only-resources/actell_device_sans_regular_16_4/resources.bin \
   --require caption.font lv-font-conv-bin-1.5.3
-python3 bridge/tools/dev.py test
+python3 mods/tools/dev.py test
 ```
 
 `build` 支持追加 `--asset ID FORMAT FILE`，生成通用目录。仅添加已审查的公开资源及其必要来源/授权；不得打入凭据或用户内容。新增媒体的格式与许可由对应资源单独声明，字体 OFL 不覆盖其他媒体。

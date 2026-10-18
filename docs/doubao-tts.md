@@ -1,6 +1,6 @@
 # 豆包回复语音
 
-可选扩展把 Muse **语音会话中已完成的回复**提交给豆包，边接收边通过原有扬声器链路播放。控制台文字会话仍只返回文字。源码位于 `bridge/extensions/doubao-tts/`，SDK 接点维护于 `bridge/patches/muse-gadget-sdk/doubao-tts.patch`；不依赖 Linux 播放进程或 RTC SDK。
+可选扩展把 Muse **语音会话中已完成的回复**提交给豆包，边接收边通过原有扬声器链路播放。控制台文字会话仍只返回文字。源码位于 `mods/extensions/doubao-tts/`，SDK 接点维护于 `mods/patches/muse-gadget-sdk/doubao-tts.patch`；不依赖 Linux 播放进程或 RTC SDK。
 
 ## 秘密配置
 
@@ -8,7 +8,7 @@
 
 ```sh
 export TTS_SECRETS_FILE="$HOME/.config/muse-actell/device-secrets.conf"
-python3 bridge/tools/apply-secrets.py --secrets "$TTS_SECRETS_FILE" --init
+python3 mods/tools/apply-secrets.py --secrets "$TTS_SECRETS_FILE" --init
 ```
 
 用户自行在本机编辑。代理不得直接读取、搜索或展示该文件；只有导入工具读取内容。格式如下，所有值均为占位示例：
@@ -30,11 +30,11 @@ Wi-Fi 和 Muse 账户通过现有官方配网/配对流程建立；Actell 连接
 导入到指定构建的实际 `sdkconfig`，同时替换已有缓存值：
 
 ```sh
-python3 bridge/tools/apply-secrets.py \
+python3 mods/tools/apply-secrets.py \
   --secrets "$TTS_SECRETS_FILE" \
   --sdkconfig local/build/sdk-copy/esp32/build-tts/sdkconfig
 # 如果使用另一个本机秘密文件，只传路径：
-python3 bridge/tools/apply-secrets.py \
+python3 mods/tools/apply-secrets.py \
   --secrets /path/outside/project/another-device.conf \
   --sdkconfig local/build/sdk-copy/esp32/build-tts/sdkconfig
 ```
@@ -46,7 +46,7 @@ SDK 配置、生成头文件及固件都会包含编译期凭据，因此这些�
 分享前可通过同一工具比对实际凭据，检查 Git 可见文件及暂存区，只输出脱敏后的匹配位置，不输出凭据或匹配行；不会扫描忽略的产物或任意历史：
 
 ```sh
-python3 bridge/tools/apply-secrets.py --secrets "$TTS_SECRETS_FILE" --audit-share
+python3 mods/tools/apply-secrets.py --secrets "$TTS_SECRETS_FILE" --audit-share
 ```
 
 ## 暂存与构建
@@ -54,15 +54,15 @@ python3 bridge/tools/apply-secrets.py --secrets "$TTS_SECRETS_FILE" --audit-shar
 先按 `upstream/sources.json` 核验归档哈希，解压到新的 `local/build/sdk-copy/`，保留干净基线。扩展应用顺序如下；TTS 为显示板可选组件，不在 headless 文字模式启用：
 
 ```sh
-python3 bridge/extensions/gadget-actell/tools/stage.py local/build/sdk-copy --check
-python3 bridge/extensions/gadget-actell/tools/stage.py local/build/sdk-copy
+python3 mods/extensions/gadget-actell/tools/stage.py local/build/sdk-copy --check
+python3 mods/extensions/gadget-actell/tools/stage.py local/build/sdk-copy
 # 可选：需要共享字体时，在 TTS 之前暂存字体扩展。
-# python3 bridge/extensions/muse-fonts/tools/stage.py local/build/sdk-copy --check
-# python3 bridge/extensions/muse-fonts/tools/stage.py local/build/sdk-copy
-python3 bridge/extensions/doubao-tts/tools/stage.py local/build/sdk-copy --check
-python3 bridge/extensions/doubao-tts/tools/stage.py local/build/sdk-copy
-python3 bridge/extensions/avatar/tools/stage.py --sdk-root local/build/sdk-copy
-python3 bridge/tools/apply-secrets.py \
+# python3 mods/extensions/muse-fonts/tools/stage.py local/build/sdk-copy --check
+# python3 mods/extensions/muse-fonts/tools/stage.py local/build/sdk-copy
+python3 mods/extensions/doubao-tts/tools/stage.py local/build/sdk-copy --check
+python3 mods/extensions/doubao-tts/tools/stage.py local/build/sdk-copy
+python3 mods/extensions/avatar/tools/stage.py --sdk-root local/build/sdk-copy
+python3 mods/tools/apply-secrets.py \
   --secrets "$TTS_SECRETS_FILE" \
   --sdkconfig local/build/sdk-copy/esp32/build-tts/sdkconfig
 ```
@@ -104,7 +104,7 @@ CONFIG_DOUBAO_TTS_BIDIRECTIONAL=y
 字体/TTS 组合构建入口会重建配置种子，因此不要仅在它的输出目录手动修改宏。切回原 HTTP 单向方案，使用明确参数：
 
 ```sh
-python3 bridge/extensions/muse-fonts/tools/build.py \
+python3 mods/extensions/muse-fonts/tools/build.py \
   --sdk local/build/sdk-copy --components-dir "$RESOLVED_COMPONENTS" --mode on \
   --with-tts --tts-transport http --secrets "$TTS_SECRETS_FILE"
 ```
@@ -138,11 +138,11 @@ SDK 补丁还将原有 MP3 自检的重采样状态显式零初始化，修复�
 ## 验证
 
 ```sh
-python3 bridge/tools/dev.py test
-python3 bridge/tools/validation/run-tts-worker.py --sdk-root local/build/sdk-copy
+python3 mods/tools/dev.py test
+python3 mods/tools/validation/run-tts-worker.py --sdk-root local/build/sdk-copy
 # 在 ESP-IDF Python 环境运行：
-python3 bridge/tools/validation/run-tts-kconfig.py
-python3 bridge/tools/check-share.py
+python3 mods/tools/validation/run-tts-kconfig.py
+python3 mods/tools/check-share.py
 ```
 
 主机回归使用合成数据验证碎片 JSON、base64、双向协议帧、边界和私密配置导入。独立 worker harness 需要暂存 SDK 已解析的 cJSON 源码，同时编译 HTTP 与双向两种实现；模拟 HTTPS/WebSocket 验证分包与 continuation 分片、UTF-8 送字、错误/不完整响应、取消、新代次隔离及缓冲背压，并模拟内部栈不可分配、PSRAM 可用时的任务初始化，不建立网络连接。原生 harness 均启用 ASan/UBSan。构建验证可使用合成配置；使用真实配置的构建输出保持本机私密。真实配置的短语音回复已在 Waveshare 2.16 完成 WebSocket 升级、会话结束确认与非空 PCM 接收，并由用户确认正常播出；这不代表首声延迟、内部 RAM 最低余量、屏幕动画并行运行、断网/打断和长回复播放已验收，后者仍需单独验证。TTS 组件日志仅输出数值指标及固定状态，不输出文本或云端错误正文。双向版 `doubao_ws` 记录固定阶段名、HTTP 状态、协议事件/类型/序列化编号、服务错误码与 PCM 字节数；关闭底层 WebSocket 日志，避免其错误分支输出鉴权请求头。

@@ -21,12 +21,12 @@ Source Han Sans 的 16px 原始全字集会产生 31px 极值行高；纵排重�
 ## 重新生成与验证
 
 ```sh
-node bridge/extensions/muse-fonts/tools/generate.js
-python3 bridge/extensions/muse-fonts/tools/pack.py build --font actell_device_sans_regular_16_4
-python3 bridge/extensions/muse-fonts/tools/run-font-host.py
-python3 bridge/extensions/muse-fonts/tools/run-resource-port.py --components-dir "$RESOLVED_COMPONENTS"
-python3 bridge/extensions/muse-fonts/tools/check-stage.py --with-avatar --with-tts
-python3 bridge/tools/dev.py test
+node mods/extensions/muse-fonts/tools/generate.js
+python3 mods/extensions/muse-fonts/tools/pack.py build --font actell_device_sans_regular_16_4
+python3 mods/extensions/muse-fonts/tools/run-font-host.py
+python3 mods/extensions/muse-fonts/tools/run-resource-port.py --components-dir "$RESOLVED_COMPONENTS"
+python3 mods/extensions/muse-fonts/tools/check-stage.py --with-avatar --with-tts
+python3 mods/tools/dev.py test
 ```
 
 生成文件仍只放在 `local/build/caption-fonts/`，新共享包位于 `local/build/read-only-resources/actell_device_sans_regular_16_4/resources.bin`，报告和预览位于 `local/validation/`。输入字体和转换器沿用固定版本与哈希，OFL/MIT 来源及授权不变。

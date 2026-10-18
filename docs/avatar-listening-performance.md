@@ -2,9 +2,9 @@
 
 ## 实现与边界
 
-默认 RAW-AA 走离线姿态与 coverage 路径；程序式回退继续保留下述预筛机制。本文旧资源/真机记录对应着色接入前的版本，当前边界见 [角色说明](../bridge/extensions/avatar/README.md#rounded-face-and-static-shading)。
+默认 RAW-AA 走离线姿态与 coverage 路径；程序式回退继续保留下述预筛机制。本文旧资源/真机记录对应着色接入前的版本，当前边界见 [角色说明](../mods/extensions/avatar/README.md#rounded-face-and-static-shading)。
 
-此前接入 `Actell-Muse-v13-Listening-Performance-Fix` 的渲染器增量，来源及前后 SHA-256 记录在 [source manifest](../bridge/extensions/avatar/source-manifest.json)。原版 v13 参考实现仍保存在 `tests/reference_v13.c`。权威源码位于 `bridge/extensions/avatar/src/`；SDK 暂存副本不能代替工程源码。
+此前接入 `Actell-Muse-v13-Listening-Performance-Fix` 的渲染器增量，来源及前后 SHA-256 记录在 [source manifest](../mods/extensions/avatar/source-manifest.json)。原版 v13 参考实现仍保存在 `tests/reference_v13.c`。权威源码位于 `mods/extensions/avatar/src/`；SDK 暂存副本不能代替工程源码。
 
 点头期间精确姿态变化仍会重建头部缓存。优化遍历原 160×160 网格，先用平方距离判定确定的内部与外部，只有边界带执行原 `hypotf` 和平滑并集。一次并集最多降低距离 0.875，两耳顺序并集最多降低 1.75；阈值 -1.81/1.76 保留浮点余量。不改变缓存键、点头节奏/幅度、眼睛、耳部装饰、蓝点、手机动作、状态优先级、按钮和布局，也不新增常驻缓存、BSS 或堆分配。自动变量和目标栈峰值仍需测量。
 
@@ -13,8 +13,8 @@
 ## 主机复现
 
 ```sh
-python3 bridge/tools/dev.py avatar
-python3 bridge/extensions/muse-fonts/tools/check-stage.py --with-avatar --with-tts
+python3 mods/tools/dev.py avatar
+python3 mods/extensions/muse-fonts/tools/check-stage.py --with-avatar --with-tts
 ```
 
 入口核验固定 SDK 归档，执行两个渲染分支的直接/暂存 ASan/UBSan 检查、原 v13 参考像素与 dirty 覆盖检查、ESP 接口 fake 编译以及补丁一致性/受保护回滚测试。LeakSanitizer 未启用。
@@ -33,7 +33,7 @@ python3 bridge/extensions/muse-fonts/tools/check-stage.py --with-avatar --with-t
 
 ## 暂存、构建与回退
 
-新建已核验固定基线的 `local/build/` SDK 副本，按 [补丁说明](../bridge/patches/README.md) 依次暂存 gadget、avatar、字体及可选 TTS，再使用 [avatar 构建入口](../bridge/extensions/avatar/README.md#memory-and-build-validation)。显示板 profile 不变，不转用 headless。
+新建已核验固定基线的 `local/build/` SDK 副本，按 [补丁说明](../mods/patches/README.md) 依次暂存 gadget、avatar、字体及可选 TTS，再使用 [avatar 构建入口](../mods/extensions/avatar/README.md#memory-and-build-validation)。显示板 profile 不变，不转用 headless。
 
 对已安装原 v13 的 SDK，普通 `stage.py` 的重复运行只确认安装记录与当前文件一致，并不会升级 renderer。优先从干净固定基线重建暂存副本，避免绕过安装哈希直接覆盖。交接包的 `update_v13.py` 仅适用于其严格匹配的既有安装，需先核对全部安装记录及后续字体/UI 改动；工程未引入或默认执行该外部更新脚本。不得强制覆盖不匹配的 SDK 或混用 journal。
 
